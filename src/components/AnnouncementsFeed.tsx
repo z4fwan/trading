@@ -365,10 +365,10 @@ export default function AnnouncementsFeed({
                 Other High-Impact Signals (Macro / General)
               </h3>
               <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis.event_type)).length === 0 ? (
+                {filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis?.event_type || '')).length === 0 ? (
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for macro events...</div>
                 ) : (
-                  filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis.event_type)).map((item) => (
+                  filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis?.event_type || '')).map((item) => (
                     <SignalCard key={item.id} item={item} onClick={setSelectedSignal} />
                   ))
                 )}
