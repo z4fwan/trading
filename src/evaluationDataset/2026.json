@@ -1,0 +1,40 @@
+[
+  {
+    "eventId": "EVT-2026-001",
+    "timestamp": 1782920871343,
+    "company": "RELIANCE.NS",
+    "headline": "Reliance Industries announces ₹45,000 crore investment in Green Energy over 3 years.",
+    "rawAnnouncement": "Reliance Industries Ltd (RIL) today announced a massive ₹45,000 crore capital expenditure plan aimed at accelerating its transition to green energy...",
+    "marketSnapshot": {
+      "niftyTrend": "BULLISH",
+      "indiaVix": 14.5,
+      "sectorStrength": 82,
+      "rsi": 62,
+      "relativeVolume": 2.1
+    },
+    "actualOutcome": {
+      "actual3DayMovePct": 4.8,
+      "maxDrawdownPct": -0.5,
+      "holdingTimeDays": 3
+    }
+  },
+  {
+    "eventId": "EVT-2026-002",
+    "timestamp": 1782920971343,
+    "company": "TCS.NS",
+    "headline": "TCS Q1 Results: Net Profit misses estimates, margin contracts 50 bps.",
+    "rawAnnouncement": "Tata Consultancy Services reported its Q1 FY27 results, with net profit coming in at ₹11,200 crore, slightly below street estimates...",
+    "marketSnapshot": {
+      "niftyTrend": "BEARISH",
+      "indiaVix": 18.2,
+      "sectorStrength": 40,
+      "rsi": 75,
+      "relativeVolume": 3.4
+    },
+    "actualOutcome": {
+      "actual3DayMovePct": -5.2,
+      "maxDrawdownPct": -6.1,
+      "holdingTimeDays": 3
+    }
+  }
+]

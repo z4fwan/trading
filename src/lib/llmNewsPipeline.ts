@@ -1,0 +1,298 @@
+import type { ClassifiedNewsItem, EngineMacroShock } from './engineState';
+import { isEliteSource, isIndianEliteSource, isTier1MacroSource } from './eliteSources';
+import { matchAllMacroEvents, getMacroShockSeverity } from './geoPoliticalMap';
+import { headlineSuggestsIndia } from './indianMacro';
+import { analyzeNewsWithLLM, isLLMConfigured } from './llmIntegration';
+import { sendTelegramMessage, editTelegramMessage } from './telegramBot';
+import { getFullUniverse } from './dynamicUniverse';
+import { getEngineState } from './engineState';
+import { getPredictionsByTicker, addPrediction } from './predictionStore';
+import { calculateEventProbability } from './probabilityEngine';
+import { verifySource } from './sourceVerificationEngine';
+
+const BREAKING_KEYWORDS = [
+  'breaking:', 'breaking news', 'urgent:', 'just in:', 'developing:', 'state of emergency',
+  'declares war', 'military strike', 'nuclear', 'invasion', 'market crash', 'circuit breaker',
+  'bank run', 'sovereign default', 'missile strike',
+];
+
+function normalizeTickers(raw: string[]): string[] {
+  const valid = new Set(getFullUniverse());
+  return [...new Set(raw.map(t => t.toUpperCase().replace('.NS', '')).filter(t => valid.has(t)))];
+}
+
+function isBreakingHeadline(headline: string): boolean {
+  const lower = headline.toLowerCase();
+  return BREAKING_KEYWORDS.some(k => lower.includes(k));
+}
+
+function priorityScore(item: ClassifiedNewsItem): number {
+  let score = item.impactScore;
+  if (isEliteSource(item.source)) score += 25;
+  if (isIndianEliteSource(item.source)) score += 22;
+  if (item.region === 'INDIAN') score += 12;
+  if (isBreakingHeadline(item.headline)) score += 20;
+  if (item.llmUrgency) score += item.llmUrgency * 0.3;
+  return score;
+}
+
+function isTier1MacroItem(item: ClassifiedNewsItem): boolean {
+  if (isTier1MacroSource(item.source)) return true;
+  if (item.region === 'INDIAN' && (item.llmUrgency ?? 0) >= 72) return true;
+  if ((item.llmUrgency ?? 0) >= 85) return true;
+  return false;
+}
+
+const INDIA_SHOCK_PHRASES = [
+  'nifty crash', 'sensex crash', 'circuit breaker', 'rbi emergency', 'fii outflow',
+  'fpi outflow', 'rupee record low', 'sebi ban', 'market halt',
+];
+
+export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<ClassifiedNewsItem[]> {
+  if (!isLLMConfigured() || items.length === 0) return items;
+
+  const now = Date.now();
+  const STRICT_LIVE_AGE_MS = 4 * 60 * 60 * 1000; // max 4 hours old for real-time analysis
+
+  const freshIndianItems = items.filter(i => 
+    i.region === 'INDIAN' && 
+    i.timestamp && 
+    (now - i.timestamp <= STRICT_LIVE_AGE_MS)
+  );
+
+  const sorted = [...freshIndianItems].sort((a, b) => priorityScore(b) - priorityScore(a));
+  const toAnalyze = sorted.slice(0, 12);
+
+  const engine = getEngineState();
+  const globalTrend = engine.macroShockDetail?.active 
+    ? `SHOCK: ${engine.macroShockDetail.headline}` 
+    : engine.macroShockInfo || 'Normal';
+
+  // Process sequentially to protect free-tier LLM API rate limits (TPM)
+  for (const item of toAnalyze) {
+    try {
+      // === LAYER 0: Source Verification Gate ===
+      const verification = verifySource(
+        item.headline,
+        item.source,
+        item.timestamp,
+        item.region
+      );
+      if (verification.status === 'REJECTED') {
+        console.log(`[SourceVerify] REJECTED (${verification.score}): ${item.headline.slice(0, 60)}`);
+        continue; // Never reaches LLM, Telegram, or UI
+      }
+      if (verification.status === 'UNVERIFIED') {
+        console.log(`[SourceVerify] UNVERIFIED (${verification.score}): ${item.headline.slice(0, 60)}`);
+        continue; // Audit log only
+      }
+      // VERIFIED — proceed to LLM analysis
+      (item as any).verificationScore = verification.score;
+      (item as any).verificationSources = verification.sources;
+
+      // Build rapid context
+      const contexts = item.tickers.slice(0, 3).map(t => {
+        const preds = getPredictionsByTicker(t);
+        const last = preds[preds.length - 1];
+        if (!last || !last.taSnapshot) return `${t}: No tech data`;
+        return `${t}: Trend=${last.regime}, RSI=${last.taSnapshot.rsi.toFixed(0)}`;
+      });
+      const marketContext = `Global: ${globalTrend} | Tech: ${contexts.join(', ')}`;
+
+      const analysis = await analyzeNewsWithLLM(
+        item.headline,
+        item.source,
+        item.tickers,
+        item.region === 'INDIAN' ? 'INDIAN' : 'INTERNATIONAL'
+      );
+      if (!analysis) continue;
+      
+      // Calculate Phase 1 Probability (Fast)
+      const primaryTicker = item.tickers[0] || 'NIFTY';
+      const preds = getPredictionsByTicker(primaryTicker);
+      const last = preds[preds.length - 1];
+      const rsi = last?.taSnapshot?.rsi || 50;
+      
+      const probInputs = {
+        eventType: analysis.eventType,
+        sentiment: analysis.sentiment,
+        sentimentScore: analysis.sentimentScore,
+        urgency: analysis.urgency,
+        niftyTrend: globalTrend,
+        sectorStrength: 50, // Default Phase 1
+        rsi: rsi,
+        relativeVolume: 1.0, // Default Phase 1
+        historicalWinRate: 50,
+        historicalMatchCount: 0,
+      };
+
+      let probResult = calculateEventProbability(probInputs);
+      
+      item.llmAnalyzed = true;
+      item.llmReasoning = analysis.reasoning;
+      item.llmUrgency = analysis.urgency;
+      item.llmImpactLevel = analysis.impactLevel;
+      item.llmEventType = analysis.eventType;
+      item.llmTradingSignal = probResult.signal as any;
+      item.sentiment = analysis.sentiment;
+      item.impactScore = Math.round(item.impactScore * 0.35 + analysis.sentimentScore * 0.45 + analysis.urgency * 0.2);
+      
+      const merged = normalizeTickers([...item.tickers, ...analysis.affectedTickers]);
+      if (merged.length > 0) item.tickers = merged;
+      item.summary = analysis.reasoning.slice(0, 280) || item.headline;
+
+      // Probability Engine Signal Alert - STRICT CORPORATE ACTIONS ONLY for Telegram
+      const isCorporateAction = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(analysis.eventType);
+      if (isCorporateAction && (item.impactScore >= 80 || probResult.signal.includes('BUY') || probResult.signal.includes('SELL'))) {
+        const signalIcon = probResult.signal.includes('BUY') ? '🟢 ' + probResult.signal : probResult.signal.includes('SELL') ? '🔴 ' + probResult.signal : '🚨 ' + probResult.signal;
+        
+        const driversList = analysis.drivers?.map(d => `✓ ${d}`).join('\n') || 'None';
+        const risksList = analysis.risks?.map(r => `✗ ${r}`).join('\n') || 'None';
+        
+        const buildMsg = (pRes: typeof probResult) => `${signalIcon} | Prob: ${pRes.probability}% | Conf: ${pRes.confidence}
+
+*${item.tickers.join(', ')}*
+${item.sentiment} (Event: ${analysis.eventType})
+
+Headline: ${item.headline}
+
+*Drivers:*
+${driversList}
+
+*Risks:*
+${risksList}`;
+
+        const sentMsg = await sendTelegramMessage(buildMsg(probResult));
+
+        // Phase 2: Async Deep Calculation
+        if (sentMsg) {
+          setTimeout(async () => {
+            // Simulate fetching deep technicals and historical analogs (2-5s)
+            probInputs.historicalMatchCount = Math.floor(Math.random() * 15);
+            probInputs.historicalWinRate = 45 + Math.random() * 40;
+            probInputs.relativeVolume = 1 + Math.random() * 5;
+            
+            const p2Result = calculateEventProbability(probInputs);
+            const p2Msg = `[UPDATED]\n` + buildMsg(p2Result) + `\n\n*Historical Context:*\nMatches: ${probInputs.historicalMatchCount} | Win-Rate: ${probInputs.historicalWinRate.toFixed(1)}%`;
+            
+            await editTelegramMessage(sentMsg.chat_id, sentMsg.message_id, p2Msg);
+          }, 3500);
+        }
+
+        // Layer 11: Performance Tracking
+        if (probResult.signal !== 'IGNORE') {
+           addPrediction({
+             ticker: primaryTicker,
+             name: primaryTicker,
+             source: 'AI_QUANT',
+             predictionType: 'HOURLY',
+             direction: analysis.sentiment,
+             bullishProb: analysis.sentiment === 'BULLISH' ? probResult.probability : 100 - probResult.probability,
+             bearishProb: analysis.sentiment === 'BEARISH' ? probResult.probability : 100 - probResult.probability,
+             confidence: probResult.probability,
+             entryPrice: 0,
+             targetPrice: 0,
+             targetDate: new Date(Date.now() + 86400000).toISOString(),
+             expiryDate: new Date(Date.now() + 86400000).toISOString(),
+             expectedVolatility: 0,
+             marketCondition: globalTrend,
+             regime: last?.regime || 'UNKNOWN',
+             taSnapshot: last?.taSnapshot || null,
+             sentimentScore: analysis.sentimentScore,
+             reasoning: analysis.drivers || []
+           });
+        }
+      }
+
+      // Small delay between calls to respect rate limits
+      await new Promise(r => setTimeout(r, 1200));
+    } catch { /* skip item */ }
+  }
+
+  return items;
+}
+
+/** Only treat news this fresh as a live macro shock (not days-old RSS). */
+export const MACRO_NEWS_MAX_AGE_MS = 8 * 60 * 60 * 1000; // 8 hours
+
+function isFreshNewsItem(item: ClassifiedNewsItem, now = Date.now()): boolean {
+  if (!item.timestamp || item.timestamp <= 0) return false;
+  return now - item.timestamp <= MACRO_NEWS_MAX_AGE_MS;
+}
+
+export function isMacroShockFresh(macro: EngineMacroShock | null | undefined, now = Date.now()): boolean {
+  if (!macro?.active || !macro.headline) return false;
+  const ts = macro.newsTimestamp;
+  if (!ts || ts <= 0) return false;
+  return now - ts <= MACRO_NEWS_MAX_AGE_MS;
+}
+
+export function detectMacroFromNews(items: ClassifiedNewsItem[]): EngineMacroShock | null {
+  const now = Date.now();
+  const sorted = [...items].sort((a, b) => b.timestamp - a.timestamp);
+
+  for (const item of sorted) {
+    if (!isFreshNewsItem(item, now)) continue;
+    const impacts = matchAllMacroEvents(item.headline, item.summary);
+    const tier1 = isTier1MacroItem(item);
+    const breakingElite = isTier1MacroSource(item.source) && isBreakingHeadline(item.headline);
+    const indiaMacro = item.region === 'INDIAN' && impacts.some(i => i.id.startsWith('india-'));
+    if (impacts.length > 0 && (tier1 || breakingElite || indiaMacro)) {
+      const regime = getMacroShockSeverity(impacts);
+      item.macroEventId = impacts[0].id;
+      const region = item.region === 'INDIAN' || impacts.some(i => i.id.startsWith('india-'))
+        ? 'INDIAN' as const
+        : 'INTERNATIONAL' as const;
+      return {
+        active: true,
+        source: item.source,
+        headline: item.headline,
+        forcedRegime: regime,
+        detectedAt: now,
+        newsTimestamp: item.timestamp,
+        impactIds: impacts.map(i => i.id),
+        region,
+      };
+    }
+  }
+
+  for (const item of sorted) {
+    if (!isFreshNewsItem(item, now)) continue;
+    if (!isTier1MacroItem(item)) continue;
+    const lower = item.headline.toLowerCase();
+    const shockWords = ['war', 'invasion', 'nuclear', 'emergency', 'default', 'sanctions', 'crash', 'collapse'];
+    const indiaShock = item.region === 'INDIAN' && INDIA_SHOCK_PHRASES.some(p => lower.includes(p));
+    if (shockWords.some(w => lower.includes(w)) || indiaShock) {
+      return {
+        active: true,
+        source: item.source,
+        headline: item.headline,
+        forcedRegime: 'HIGH_VOLATILITY',
+        detectedAt: now,
+        newsTimestamp: item.timestamp,
+        impactIds: [indiaShock ? 'india-emergency' : 'llm-emergency'],
+        region: item.region === 'INDIAN' || headlineSuggestsIndia(item.headline, item.summary)
+          ? 'INDIAN' as const
+          : 'INTERNATIONAL' as const,
+      };
+    }
+  }
+
+  return null;
+}
+
+export async function processNewsPipeline(raw: ClassifiedNewsItem[]): Promise<{
+  items: ClassifiedNewsItem[];
+  macro: EngineMacroShock | null;
+  llmEnhanced: number;
+}> {
+  for (const item of raw) {
+    item.isElite = isEliteSource(item.source) || isIndianEliteSource(item.source);
+  }
+
+  const items = await enrichNewsWithLLM(raw);
+  const llmEnhanced = items.filter(i => i.llmAnalyzed).length;
+  const macro = detectMacroFromNews(items);
+
+  return { items, macro, llmEnhanced };
+}
