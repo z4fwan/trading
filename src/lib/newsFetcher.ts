@@ -108,20 +108,64 @@ async function fetchRssNews(feedUrl: string, source: string, skipTitlePrefixes: 
   }
 }
 
+function calculateRelevanceScore(headline: string, tickers: string[], source: string): number {
+  let score = 50; // Base score
+  
+  // Source credibility (0-30 points)
+  if (isEliteSource(source)) score += 30;
+  else if (isIndianEliteSource(source)) score += 25;
+  else if (source.includes('Reuters') || source.includes('Bloomberg')) score += 20;
+  else if (source.includes('NSE') || source.includes('BSE')) score += 28;
+  
+  // Ticker specificity (0-20 points)
+  if (tickers.length === 1) score += 20; // Highly specific
+  else if (tickers.length === 2) score += 15;
+  else if (tickers.length >= 3) score += 8; // Too generic
+  
+  // Headline quality (0-15 points)
+  const upper = headline.toUpperCase();
+  if (tickers.some(t => upper.includes(t))) score += 15; // Ticker mentioned
+  if (headline.length > 50 && headline.length < 200) score += 10; // Good length
+  if (headline.includes(':') || headline.includes('-')) score += 5; // Structured
+  
+  // Keyword analysis (0-10 points)
+  const highImpactKeywords = ['acquisition', 'merger', 'result', 'profit', 'loss', 'order', 'contract', 'approval', 'launch'];
+  const lowImpactKeywords = ['analyst', 'meet', 'call', 'presentation', 'conference'];
+  
+  const lower = headline.toLowerCase();
+  if (highImpactKeywords.some(k => lower.includes(k))) score += 10;
+  if (lowImpactKeywords.some(k => lower.includes(k))) score -= 5;
+  
+  return Math.min(100, Math.max(0, score));
+}
+
 function classifyAndFormat(rawItems: { headline: string; source: string; tickers: string[]; url?: string }[]): ClassifiedNewsItem[] {
   const classifiedNews = rawItems.map((item, idx) => {
     const sentiment = classifySentiment(item.headline);
     const region = detectNewsRegion(item.headline, item.tickers);
     const wordCount = item.headline.split(' ').length;
+    
+    // Calculate relevance score first
+    const relevanceScore = calculateRelevanceScore(item.headline, item.tickers, item.source);
+    
+    // Skip low-relevance items (below 40)
+    if (relevanceScore < 40) {
+      return null; // Will be filtered out
+    }
+    
+    // Base impact calculation
     const impactBase = sentiment === 'BULLISH' ? 55 : sentiment === 'BEARISH' ? 55 : 30;
     const tickerBonus = Math.min(25, item.tickers.length * 8);
     const lengthBonus = Math.min(10, wordCount * 1.5);
     const indiaBonus = region === 'INDIAN' ? 8 : 0;
     const eliteBonus = (isEliteSource(item.source) || isIndianEliteSource(item.source)) ? 10 : 0;
-    const impactScore = Math.min(95, impactBase + tickerBonus + lengthBonus + indiaBonus + eliteBonus);
+    const relevanceBonus = Math.floor((relevanceScore - 40) * 0.4); // 0-24 points from relevance
+    
+    const impactScore = Math.min(98, impactBase + tickerBonus + lengthBonus + indiaBonus + eliteBonus + relevanceBonus);
     const cleanHeadline = item.headline.replace(/[^a-zA-Z0-9]/g, '').slice(0, 50);
     const cleanSource = item.source.replace(/[^a-zA-Z0-9]/g, '');
-    const id = `news-${cleanSource}-${cleanHeadline}`;
+    const id = `news-${cleanSource}-${cleanHeadline}-${Date.now()}-${idx}`;
+    
     return {
       id,
       timestamp: Date.now(),
@@ -134,9 +178,10 @@ function classifyAndFormat(rawItems: { headline: string; source: string; tickers
       tickers: item.tickers,
       url: item.url,
       isElite: isEliteSource(item.source) || isIndianEliteSource(item.source),
+      relevanceScore, // Add relevance score for transparency
     };
   });
-  return classifiedNews.filter(item => item.headline.length > 10);
+  return classifiedNews.filter(item => item !== null && item.headline.length > 10);
 }
 
 const RSS_FEEDS: { url: string; source: string; skip: string[] }[] = [

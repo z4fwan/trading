@@ -15,7 +15,8 @@ let lastBroadcastAt = 0;
 
 function broadcast(): void {
   const engine = getEngineState();
-  const payload = engine.quotesPayload;
+  // @ts-ignore
+  const payload = global.__quotesPayload || engine.quotesPayload;
   if (!payload) return;
   const now = Date.now();
   // Skip if payload unchanged AND we sent one within the last 5s

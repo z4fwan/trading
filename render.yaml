@@ -1,0 +1,61 @@
+services:
+  - type: web
+    name: trading-dashboard
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: RENDER
+        value: "true"
+      # Auto true when RENDER=true — slower quote polls, no SSE, ?lite=1 payloads
+      - key: RENDER_BANDWIDTH_SAVER
+        value: "true"
+      - key: NEXT_PUBLIC_DEMO_MODE
+        value: "false"
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ANNUAL_REPORT_EMAIL
+        sync: false
+      - key: ANNUAL_REPORT_SECRET
+        sync: false
+      - key: ANNUAL_REPORT_AUTO
+        value: "true"
+      - key: ANNUAL_REPORT_FY_AUTO
+        value: "true"
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      # Primary LLM — Google Gemini (AI Studio free tier)
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: "gemini-2.0-flash"
+      # Fallback providers (optional)
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_MODEL
+        value: "deepseek-chat"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_API_URL
+        value: "https://api.groq.com/openai/v1/chat/completions"
+      - key: LLM_MODEL
+        value: "llama-3.3-70b-versatile"

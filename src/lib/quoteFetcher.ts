@@ -215,8 +215,13 @@ function isYahooRateLimitError(err: unknown): boolean {
   return msg.includes('400') || msg.includes('429') || msg.includes('Too Many') || msg.includes('Bad Request');
 }
 
+let yahooRateLimitUntil = 0;
+
 async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promise<number> {
   if (symbols.length === 0) return 0;
+  if (Date.now() < yahooRateLimitUntil) {
+    return 0; // Gracefully skip fetching while rate limited
+  }
   let merged = 0;
   for (let i = 0; i < symbols.length; i += YAHOO_QUOTE_CHUNK) {
     const chunk = symbols.slice(i, i + YAHOO_QUOTE_CHUNK);
@@ -230,11 +235,16 @@ async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promi
         ok = true;
         break;
       } catch (e) {
-        if (!isYahooRateLimitError(e) || attempt === 2) throw e;
+        if (!isYahooRateLimitError(e)) throw e;
+        if (attempt === 2) {
+            console.warn('[quoteFetcher] Yahoo Rate Limit hit (429). Backing off for 60s.');
+            yahooRateLimitUntil = Date.now() + 60000; // Lock for 60 seconds
+            return merged; // Exit early but gracefully
+        }
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
       }
     }
-    if (i + YAHOO_QUOTE_CHUNK < symbols.length) {
+    if (ok && i + YAHOO_QUOTE_CHUNK < symbols.length) {
       await new Promise(r => setTimeout(r, 80));
     }
   }

@@ -74,6 +74,33 @@ export default function SignalCard({ item, onClick }: { item: any, onClick: (ite
         <div className="text-center"><span className="text-slate-500 block">Liq</span> <span className="text-white">{liqScore}</span></div>
       </div>
 
+      {/* Holding Period Badge */}
+      <div className="mb-3">
+        {(() => {
+          const eventType = item.ai_analysis?.event_type || '';
+          const holdingMap: Record<string, { icon: string; text: string; color: string }> = {
+            'ORDER_WIN': { icon: '⚡', text: 'INTRADAY', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+            'FDA_APPROVAL': { icon: '⚡', text: 'INTRADAY', color: 'text-amber-400 bg-amber-500/10 border-amber-500/30' },
+            'EARNINGS_BEAT': { icon: '📅', text: 'SWING (2-5 Days)', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' },
+            'PROFIT_SURGE': { icon: '📅', text: 'SWING (2-5 Days)', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' },
+            'CORPORATE_ACTION': { icon: '📅', text: 'SWING (2-5 Days)', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' },
+            'ACQUISITION': { icon: '📅', text: 'SWING (1-2 Weeks)', color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+            'MERGER': { icon: '📅', text: 'SWING (1-2 Weeks)', color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+            'TURNAROUND': { icon: '📅', text: 'SWING (1-2 Weeks)', color: 'text-purple-400 bg-purple-500/10 border-purple-500/30' },
+            'DEBT_REDUCTION': { icon: '📈', text: 'LONG TERM', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+            'PROMOTER_BUYING': { icon: '📈', text: 'LONG TERM', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30' },
+          };
+          const holding = holdingMap[eventType] || { icon: '📅', text: 'SWING (2-5 Days)', color: 'text-blue-400 bg-blue-500/10 border-blue-500/30' };
+          
+          return (
+            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-[10px] font-mono ${holding.color}`}>
+              <span>{holding.icon}</span>
+              <span className="font-bold">{holding.text}</span>
+            </div>
+          );
+        })()}
+      </div>
+
       <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest">
         <span className="text-slate-500">Status</span>
         <span className="text-emerald-500 font-bold">PHASE 2 COMPLETE</span>

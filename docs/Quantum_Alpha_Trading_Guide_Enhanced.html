@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quantum Alpha – Beginner Trading Guide (Enhanced)</title>
+  <style>
+:root {
+  --bg: #0f172a;
+  --card: #1e293b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --accent: #10b981;
+  --warn: #f59e0b;
+  --danger: #ef4444;
+  --blue: #38bdf8;
+  --highlight: #064e3b;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 2rem;
+  max-width: 960px;
+  margin-inline: auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  line-height: 1.6;
+}
+h1, h2, h3 { margin-top: 2rem; }
+h1 { color: var(--accent); font-size: 2rem; border-bottom: 2px solid var(--accent); padding-bottom: 0.5rem; }
+h2 { color: var(--blue); font-size: 1.5rem; }
+h3 { font-size: 1.25rem; color: #cbd5e1; }
+p, li { color: var(--muted); font-size: 0.95rem; }
+strong { color: var(--text); }
+.card {
+  background: var(--card);
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin: 1rem 0;
+}
+.formula {
+  background: #0c1222;
+  border-left: 4px solid var(--accent);
+  padding: 1rem;
+  font-family: 'Consolas', monospace;
+  font-size: 0.9rem;
+  color: #a7f3d0;
+  margin: 1rem 0;
+}
+.example {
+  background: var(--highlight);
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  padding: 1rem;
+  margin: 1rem 0;
+}
+.diagram { margin: 1.5rem 0; text-align: center; }
+.diagram img { max-width: 100%; height: auto; border-radius: 8px; }
+.badge { display: inline-block; background: var(--highlight); color: var(--accent); padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
+    @media print {
+      body { background: var(--bg); color: var(--text); padding: 1cm; }
+      h1 { color: var(--accent); }
+      h2 { color: var(--blue); }
+      p, li { color: var(--muted); }
+      .card { border: 1px solid #334155; background: var(--card); }
+      .formula { background: #0c1222; color: #a7f3d0; }
+      .diagram { background: transparent; }
+    }
+
+}
+</style>
+</head>
+<body>
+  <h1>Quantum Alpha – Beginner Trading Guide (Enhanced)</h1>
+  <p><span class="badge">v2.0</span> <strong>Dashboard:</strong> <strong>trading-dashboard</strong> on Render &nbsp;|&nbsp; Not financial advice — for education only.</p>
+
+  <div class="card toc">
+    <h3 style="margin-top:0">Contents</h3>
+    <ol>
+      <li><a href="#map">1️⃣ Site map – where to click</a></li>
+      <li><a href="#checklist">2️⃣ 5‑minute pre‑trade checklist (beginner friendly)</a></li>
+      <li><a href="#calc">3️⃣ Core calculations – simple examples</a></li>
+      <li><a href="#sections">4️⃣ Section‑by‑section guide</a></li>
+      <li><a href="#example">5️⃣ Worked example (step‑by‑step)</a></li>
+      <li><a href="#rules">6️⃣ Risk rules – keep you safe</a></li>
+    </ol>
+  </div>
+
+  <h2 id="map">1️⃣ Site map – where to click</h2>
+  <p>After you log in you’ll see a top navigation bar. The most important panels for a beginner are:</p>
+  <div class="diagram">
+    <img src="file:///C:/Users/z4fwa/.gemini/antigravity/brain/6d679911-d9ce-4396-a140-5e25b2b4402b/dashboard_mockup_1779531162358.png" alt="Dashboard mockup" />
+  </div>
+  <ul>
+    <li><strong>Live Feed</strong> – real‑time prices and market session.</li>
+    <li><strong>Macro Banner</strong> – warning for major news (war, rate‑hike, etc.).</li>
+    <li><strong>AI → Predictions</strong> – direction, confidence and target.</li>
+    <li><strong>AI → Trust Engine</strong> – a safety score that tells you whether the model is trustworthy for the current ticker.</li>
+    <li><strong>AI → News</strong> – headline sentiment that can move the market.</li>
+  </ul>
+
+  <h2 id="checklist">2️⃣ 5‑minute pre‑trade checklist (beginner friendly)</h2>
+  <div class="diagram">
+    <img src="file:///C:/Users/z4fwa/.gemini/antigravity/brain/6d679911-d9ce-4396-a140-5e25b2b4402b/pre_trade_flowchart_1779530814933.png" alt="Pre‑trade flowchart" />
+  </div>
+  <p>Follow these steps before you press “Buy” or “Sell”. Each step takes only a few seconds.</p>
+  <ol>
+    <li><strong>Open Dashboard</strong> – make sure you are logged in.</li>
+    <li><strong>Live Feed</strong> – confirm the market is open (<em>Live Feed bar</em> should be green).</li>
+    <li><strong>Macro Banner</strong> – if a red banner appears, pause and wait for the shock to settle.</li>
+    <li><strong>Review News</strong> – glance at the AI‑News panel; high‑impact news should be highlighted.</li>
+    <li><strong>View Predictions</strong> – note the direction (Bullish/Bearish) and confidence %.</li>
+    <li><strong>Trust Engine</strong> – if the trust score is <strong>🟢 High</strong> you can proceed; otherwise consider a smaller size.</li>
+    <li><strong>Calculate Position Size</strong> – use the formulas in the next section.</li>
+    <li><strong>Final Decision</strong> – if everything looks green, click “Buy”. Otherwise, wait.</li>
+  </ol>
+
+  <h2 id="calc">3️⃣ Core calculations – simple examples</h2>
+  <h3>3.1 Risk per trade (how much you can lose)</h3>
+  <div class="formula">
+    Risk amount = Account size × Risk % per trade<br />
+    Example: $10,000 × 1% = <strong>$100</strong> max loss per trade
+  </div>
+
+  <h3>3.2 Position size (how many shares/units)</h3>
+  <div class="formula">
+    Shares = Risk amount ÷ |Entry – Stop|<br />
+    Example: Entry $50, Stop $48 → $2 risk per share<br />
+    $100 ÷ $2 = <strong>50 shares</strong>
+  </div>
+
+  <h3>3.3 Risk/Reward ratio (is the trade worth it?)</h3>
+  <div class="formula">
+    Reward = |Target – Entry|<br />
+    R:R = Reward ÷ Risk<br />
+    Example: Target $55, Entry $50 → Reward $5<br />
+    Risk $2 → R:R = 5 ÷ 2 = <strong>2.5</strong> (good – aim for ≥1.5)
+  </div>
+
+  <h2 id="sections">4️⃣ Section‑by‑section guide (what to read first)</h2>
+  <table>
+    <tr><th>Where on site</th><th>What it tells you</th><th>Use before buy?</th></tr>
+    <tr><td><strong>Live Feed bar</strong></td><td>Current price, market session, tick‑by‑tick updates</td><td>✅ Always</td></tr>
+    <tr><td><strong>Market Status</strong></td><td>Feed health, LLM on/off</td><td>✅ Always</td></tr>
+    <tr><td><strong>AI → Daily</strong></td><td>Top setups for the day + experience boost</td><td>✅ Yes</td></tr>
+    <tr><td><strong>AI → Session</strong></td><td>Intraday timing (open / mid / close)</td><td>✅ For day‑trades</td></tr>
+    <tr><td><strong>AI → News</strong></td><td>Sentiment, impact score, elite sources</td><td>✅ Yes</td></tr>
+    <tr><td><strong>AI → Predictions</strong></td><td>Direction, confidence, reasoning</td><td>✅ Core signal</td></tr>
+    <tr><td><strong>AI → Trust Engine</strong></td><td>Calibration, weight‑adjusted trust score</td><td>✅ Before sizing up</td></tr>
+  </table>
+
+  <h2 id="example">5️⃣ Worked example – step‑by‑step (beginner friendly)</h2>
+  <div class="example">
+    <p><strong>Scenario:</strong> You see a bullish prediction for RELIANCE.</p>
+    <ul>
+      <li>Live price (Entry): <strong>$2,850</strong></li>
+      <li>AI Prediction: <strong>BULLISH, 68% confidence</strong></li>
+      <li>Target: <strong>$2,950</strong> (+3.5%)</li>
+      <li>Stop loss: <strong>$2,800</strong> (‑1.75%)</li>
+      <li>Account size: $5,000, risk 1% → $50 max loss</li>
+    </ul>
+    <div class="formula">
+      Risk per share = $2,850 – $2,800 = $50<br />
+      Shares = $50 ÷ $50 = <strong>1 share</strong> (you would reduce size for a beginner)
+    </div>
+    <div class="formula">
+      Reward per share = $2,950 – $2,850 = $100<br />
+      R:R = 100 ÷ 50 = <strong>2.0</strong> ✅ good
+    </div>
+    <div class="diagram">
+      <img src="file:///C:/Users/z4fwa/.gemini/antigravity/brain/6d679911-d9ce-4396-a140-5e25b2b4402b/candlestick_chart_1779531195469.png" alt="Candlestick chart" />
+    </div>
+    <div class="diagram">
+      <img src="file:///C:/Users/z4fwa/.gemini/antigravity/brain/6d679911-d9ce-4396-a140-5e25b2b4402b/risk_reward_diagram_1779531257830.png" alt="Risk/Reward diagram" />
+    </div>
+    <p>Because the trust score is high and the macro banner is OFF, you could place the trade with a tiny position (1‑2 shares) to get comfortable.</p>
+  </div>
+
+  <h2 id="rules">6️⃣ Risk rules – keep you safe</h2>
+  <ol>
+    <li>Never risk more than <strong>1–2%</strong> of your capital on a single trade.</li>
+    <li>Always use a stop loss – never rely on “hope”.</li>
+    <li>If News and Prediction disagree, <span class="danger">skip the trade</span>.</li>
+    <li>If the Trust Engine shows <strong>Low</strong> confidence, cut size in half.</li>
+    <li>Macro shock (red banner) → avoid new long positions or shrink size drastically.</li>
+    <li>This guide does <strong>not</strong> guarantee profit – markets can gap.</li>
+  </ol>
+<h2 id="ai-trading-guide">🚀 How to Trade Using Our AI System</h2>
+<p>Our AI evaluates live market data, sentiment scores, and predictive confidence to suggest actionable trades. Follow these simple steps:</p>
+<ol>
+  <li><strong>Open the Dashboard</strong>: Look at the <em>Live Feed Bar</em> for the current price and the <em>AI → Daily</em> widget for the top setup of the day.</li>
+  <li><strong>Check the Prediction</strong>: The <em>AI → Predictions</em> card shows the direction (Bullish/Bearish) and a confidence percentage.</li>
+  <li><strong>Validate with Trust Engine</strong>: If the <em>Trust Engine</em> shows <span class="badge" style="background:#0f766e;">High</span> confidence, you can consider entering the trade.</li>
+  <li><strong>Determine Entry & Stop</strong>: Use the <em>Entry</em> price from the Live Feed and set a stop‑loss a few points below, respecting the risk rule (max 1‑2% of capital).</li>
+  <li><strong>Size the Position</strong>: Apply the formula <code>Shares = Risk Amount ÷ (Entry – Stop)</code>. Our guide provides a <a href="#example">worked example</a> you can copy.</li>
+  <li><strong>Set a Target</strong>: Aim for a risk‑reward ratio of at least 1.5 : 1. The <em>AI → Predictions</em> also gives a target price you can use.</li>
+  <li><strong>Monitor</strong>: Keep an eye on the <em>Macro Shock</em> banner. If it turns red, consider exiting or reducing size.</li>
+</ol>
+<p>💡 <strong>Profit tip:</strong> Consistently applying the risk‑reward rule and never risking more than 2% per trade is the fastest path to steady growth.</p>
+<h2 id="site-features">🔧 Site Features &amp; Advantages</h2>
+<p>Our trading‑dashboard platform bundles a set of AI‑driven tools that simplify every step of a trade. Below is a quick‑reference on how to use each feature and the edge it gives you.</p>
+<ul>
+  <li><strong>Live Feed Bar</strong>: Real‑time price, session status, and market depth. <em>Use it to set precise entry points.</em></li>
+  <li><strong>AI → Daily</strong>: Summarizes the top setup of the day (e.g., “Buy ABC @ $45”). <em>Provides the initial trade idea.</em></li>
+  <li><strong>AI → Predictions</strong>: Shows direction, confidence % and target price. <em>Guides target and confidence assessment.</em></li>
+  <li><strong>Trust Engine</strong>: Grades confidence as High / Medium / Low. <em>Acts as a safety filter before you commit capital.</em></li>
+  <li><strong>Macro Shock Banner</strong>: Red warning when market regime changes (e.g., news spikes). <em>Signals you to exit or reduce size.</em></li>
+  <li><strong>AI → News &amp; Session</strong>: Sentiment scores and session‑level risk flags. <em>Helps you avoid trades that contradict market sentiment.</em></li>
+</ul>
+<h3>Profit‑Making Strategy – Quick Calculator</h3>
+<p>Follow these three numbers for every trade:</p>
+<ol>
+  <li><strong>Risk Amount</strong> – 1‑2 % of your total capital (e.g., $5,000 × 0.02 = $100).</li>
+  <li><strong>Entry &amp; Stop‑Loss</strong> – From the Live Feed Bar. <code>Risk per share = Entry – Stop</code>.</li>
+  <li><strong>Shares</strong> – <code>Shares = Risk Amount ÷ (Entry – Stop)</code>.</li>
+</ol>
+<p>Then calculate the <strong>Reward</strong> using the target price from <em>AI → Predictions</em> and compute the <strong>Risk‑Reward Ratio</strong>:</p>
+<pre><code>Reward per share = Target – Entry
+R:R = Reward per share ÷ (Entry – Stop)
+</code></pre>
+<p>Aim for <code>R:R ≥ 1.5</code>. The diagram below visualises the calculation.</p>
+<div class="diagram"><img src="file:///C:/Users/z4fwa/.gemini/antigravity/brain/6d679911-d9ce-4396-a140-5e25b2b4402b/risk_reward_diagram_1779531257830.png" alt="Risk‑Reward diagram" /></div>
+<p>By consistently applying the above steps you convert the platform’s AI insights into a repeatable, profit‑focused workflow.</p>
+
+
+  <div class="card">
+    <h3>Save as PDF (for sharing)</h3>
+    <p>In Chrome or Edge:</p>
+    <ol>
+      <li>Press <strong>Ctrl+P</strong></li>
+      <li>Destination → <strong>Save as PDF</strong></li>
+      <li>Margins → Default, Background graphics → ON</li>
+      <li>Click <strong>Save</strong> – the file will be named <code>Quantum_Alpha_Trading_Guide_Enhanced.pdf</code></li>
+    </ol>
+  </div>
+
+  <p style="text-align:center;margin-top:3rem;font-size:0.8rem;color:#64748b;">
+    Quantum Alpha Terminal · trading‑dashboard · Enhanced guide for educational use only.
+  </p>
+</body>
+</html>

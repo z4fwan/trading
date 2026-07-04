@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>z4fwan™ — Quantum Alpha Terminal Master Trading Guide</title>
+  <style>
+    :root {
+      --bg: #020617;
+      --card: #0f172a;
+      --card2: #1e293b;
+      --border: #334155;
+      --text: #f8fafc;
+      --muted: #94a3b8;
+      --emerald: #10b981;
+      --emerald-dim: #064e3b;
+      --blue: #38bdf8;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --mono: 'Consolas', 'JetBrains Mono', 'Fira Code', monospace;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    @page {
+      size: A4;
+      margin: 0;
+      background: #020617;
+    }
+    html {
+      width: 210mm;
+      background: #020617 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+      background: #020617 !important;
+      color: var(--text);
+      font-size: 10.5pt;
+      line-height: 1.55;
+      width: 210mm;
+      margin: 0;
+      padding: 0;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    .page {
+      position: relative;
+      width: 210mm;
+      height: 297mm;
+      min-height: 297mm;
+      max-height: 297mm;
+      background: #020617 !important;
+      padding: 12mm 10mm 14mm 10mm;
+      page-break-after: always;
+      break-after: page;
+      overflow: hidden;
+    }
+    .page:last-child { page-break-after: auto; }
+    .page-inner {
+      display: grid;
+      grid-template-columns: 1fr 52mm;
+      gap: 8mm;
+      align-items: start;
+      height: calc(297mm - 12mm - 14mm - 10mm);
+    }
+    .main { min-width: 0; }
+    .power-rail {
+      background: linear-gradient(180deg, #0f172a 0%, #020617 100%);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 10px 12px;
+      font-size: 7.5pt;
+      position: sticky;
+      top: 0;
+    }
+    .power-rail h4 {
+      font-family: var(--mono);
+      font-size: 7pt;
+      color: var(--emerald);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--emerald-dim);
+    }
+    .power-rail ul { list-style: none; color: var(--muted); }
+    .power-rail li {
+      margin-bottom: 6px;
+      padding-left: 10px;
+      position: relative;
+      line-height: 1.35;
+    }
+    .power-rail li::before {
+      content: '▸';
+      position: absolute;
+      left: 0;
+      color: var(--emerald);
+      font-size: 8pt;
+    }
+    .power-stat {
+      margin-top: 10px;
+      padding: 8px;
+      background: var(--emerald-dim);
+      border-radius: 8px;
+      border: 1px solid #065f46;
+      text-align: center;
+    }
+    .power-stat .num { font-size: 16pt; font-weight: 800; color: var(--emerald); font-family: var(--mono); }
+    .power-stat .lbl { font-size: 6.5pt; color: #6ee7b7; text-transform: uppercase; letter-spacing: 0.08em; }
+    .page-footer {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 6px;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 7.5pt;
+      color: var(--muted);
+    }
+    .page-footer .brand { color: var(--emerald); font-weight: 700; letter-spacing: 0.15em; }
+    h1 { font-family: var(--mono); font-size: 22pt; color: var(--emerald); line-height: 1.2; margin-bottom: 6px; }
+    h2 { font-family: var(--mono); font-size: 13pt; color: var(--blue); margin: 14px 0 8px; page-break-after: avoid; }
+    h3 { font-size: 10.5pt; color: #e2e8f0; margin: 10px 0 6px; }
+    p, li { color: var(--muted); margin-bottom: 6px; font-size: 9.5pt; }
+    strong { color: var(--text); }
+    .cover {
+      width: 210mm;
+      height: 297mm;
+      min-height: 297mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: radial-gradient(ellipse at 50% 20%, #064e3b 0%, #020617 70%) !important;
+      page-break-after: always;
+      break-after: page;
+    }
+    .cover .logo-mark {
+      font-family: var(--mono);
+      font-size: 42pt;
+      font-weight: 800;
+      color: var(--emerald);
+      letter-spacing: 0.2em;
+      text-shadow: 0 0 40px rgba(16, 185, 129, 0.35);
+    }
+    .cover .sub { font-family: var(--mono); font-size: 11pt; color: var(--muted); margin-top: 12px; }
+    .cover h1 { font-size: 18pt; border: none; margin-top: 28px; }
+    .cover .tag { margin-top: 24px; font-size: 8pt; color: #64748b; }
+    .badge {
+      display: inline-block;
+      background: var(--emerald-dim);
+      color: var(--emerald);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--mono);
+      font-size: 7.5pt;
+      font-weight: 700;
+      border: 1px solid #065f46;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 14px;
+      margin: 10px 0;
+    }
+    .mock {
+      background: #020617;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .mock svg { display: block; width: 100%; height: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 8.5pt; margin: 8px 0; }
+    th, td { border: 1px solid var(--border); padding: 6px 8px; text-align: left; }
+    th { background: var(--card2); color: var(--emerald); font-family: var(--mono); font-size: 7.5pt; }
+    .formula {
+      background: #0c1222;
+      border-left: 3px solid var(--emerald);
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 8.5pt;
+      color: #a7f3d0;
+      margin: 8px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .warn { color: var(--amber); }
+    .danger { color: var(--red); }
+    .step { display: flex; gap: 8px; margin: 6px 0; align-items: flex-start; }
+    .step-n {
+      flex-shrink: 0;
+      width: 20px; height: 20px;
+      background: var(--emerald);
+      color: #022c22;
+      border-radius: 50%;
+      font-size: 8pt;
+      font-weight: 800;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--mono);
+    }
+    .timeline { border-left: 2px solid var(--emerald); padding-left: 14px; margin: 10px 0; }
+    .timeline-item { margin-bottom: 12px; }
+    .timeline-item strong { color: var(--emerald); font-family: var(--mono); font-size: 8.5pt; }
+    ol, ul { padding-left: 18px; margin: 6px 0; }
+    @media print {
+      html, body, .page, .cover {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        background-color: #020617 !important;
+      }
+      .page, .cover {
+        width: 210mm;
+        height: 297mm;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<!-- COVER -->
+<section class="cover">
+  <div class="logo-mark">z4fwan™</div>
+  <div class="sub">TRADEMARK · QUANTITATIVE INTELLIGENCE</div>
+  <h1>QUANTUM ALPHA TERMINAL</h1>
+  <p style="color:#94a3b8;max-width:420px;font-size:11pt;margin-top:8px;">
+    Master Trading &amp; Investment Guide — How to use AI predictions, signals, gems, and patterns to trade smarter
+  </p>
+  <p class="tag">Dashboard: trading-dashboard-awoe.onrender.com · Education only — not financial advice</p>
+  <p class="tag" style="margin-top:40px;">© z4fwan™ · All rights reserved · v3.0 Master Edition</p>
+</section>
+
+<!-- PAGE 1: TOC -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <span class="badge">MASTER GUIDE v3.0</span>
+      <h1 style="font-size:16pt;margin-top:8px;">Contents &amp; Quick Start</h1>
+      <div class="card">
+        <ol style="columns:2;column-gap:24px;font-size:9pt;">
+          <li>Dashboard map (exact layout)</li>
+          <li>Live market prices</li>
+          <li>Weekly predictions calendar</li>
+          <li>AI Quant Engine — all modules</li>
+          <li>Daily predictions &amp; daily profit plan</li>
+          <li>💎 Hidden Gems scanner</li>
+          <li>⚡ Risk signals</li>
+          <li>Long-term strategies</li>
+          <li>Pattern decoding (charts)</li>
+          <li>AI Trust Engine &amp; learning</li>
+          <li>Macro shock &amp; news feed</li>
+          <li>Worked example trade</li>
+          <li>Long-term wealth vision</li>
+          <li>AI evolution roadmap (years ahead)</li>
+          <li>Risk rules &amp; disclaimer</li>
+        </ol>
+      </div>
+      <h2>5-minute start (before any trade)</h2>
+      <div class="step"><span class="step-n">1</span><p>Log in → open <strong>Command Workspace</strong> → check <strong>market status</strong> (LIVE vs LAST CLOSE).</p></div>
+      <div class="step"><span class="step-n">2</span><p>Open <strong>AI_QUANT_ENGINE</strong> → read <strong>Macro</strong> banner if red (pause trading).</p></div>
+      <div class="step"><span class="step-n">3</span><p>Check <strong>AI Trust Engine</strong> — only act when live accuracy &gt; 55% on recent resolved calls.</p></div>
+      <div class="step"><span class="step-n">4</span><p>Pick idea from <strong>Weekly</strong> or <strong>Gems</strong> → confirm on <strong>Signals</strong> + <strong>Daily</strong> tab.</p></div>
+      <div class="step"><span class="step-n">5</span><p>Size position with stop-loss formula (page 12) — never risk more than 1–2% per trade.</p></div>
+    </div>
+    <aside class="power-rail">
+      <h4>AI Power</h4>
+      <ul>
+        <li>100+ stocks · NSE + US</li>
+        <li>24/7 background engine</li>
+        <li>ML + technical fusion</li>
+        <li>Self-learning from outcomes</li>
+        <li>News sentiment pipeline</li>
+        <li>Concept drift detection</li>
+      </ul>
+      <div class="power-stat"><div class="num">9+</div><div class="lbl">AI modules</div></div>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 1</span></footer>
+</section>
+
+<!-- PAGE 2: DASHBOARD MAP -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>1. Dashboard map — matches your screen</h2>
+      <p>Left sidebar + top workspace tabs. This is the exact navigation structure of your site.</p>
+      <div class="mock">
+        <svg viewBox="0 0 680 320" xmlns="http://www.w3.org/2000/svg" font-family="Consolas,monospace">
+          <rect width="680" height="320" fill="#020617"/>
+          <!-- Sidebar -->
+          <rect x="8" y="8" width="118" height="304" rx="8" fill="#0f172a" stroke="#334155"/>
+          <text x="20" y="32" fill="#10b981" font-size="9" font-weight="bold">QUANTUM_ALPHA_V1</text>
+          <text x="20" y="46" fill="#64748b" font-size="6">Admin Core Terminal</text>
+          <rect x="16" y="58" width="102" height="22" rx="6" fill="#1e293b" stroke="#475569"/>
+          <text x="24" y="73" fill="#10b981" font-size="7">🛡️ Command Workspace</text>
+          <rect x="16" y="86" width="102" height="22" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="24" y="101" fill="#94a3b8" font-size="7">📋 Stock Lists</text>
+          <rect x="16" y="114" width="102" height="22" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="24" y="129" fill="#94a3b8" font-size="7">📅 Weekly Predictions</text>
+          <rect x="16" y="142" width="102" height="22" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="24" y="157" fill="#94a3b8" font-size="7">🔍 AI Trust Engine</text>
+          <rect x="16" y="170" width="102" height="22" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="24" y="185" fill="#94a3b8" font-size="7">💹 Live Prices</text>
+          <circle cx="24" cy="298" r="3" fill="#10b981"/>
+          <text x="32" y="301" fill="#64748b" font-size="6">Live Market Data</text>
+          <!-- Main -->
+          <rect x="134" y="8" width="538" height="304" rx="8" fill="#0f172a" stroke="#334155"/>
+          <text x="150" y="30" fill="#f8fafc" font-size="10" font-weight="bold">📊 Dashboard Overview</text>
+          <text x="150" y="44" fill="#64748b" font-size="6">Yahoo Finance · LAST CLOSE / LIVE</text>
+          <!-- Ticker bar -->
+          <rect x="150" y="52" width="510" height="28" rx="6" fill="#020617" stroke="#334155"/>
+          <text x="160" y="70" fill="#10b981" font-size="7">RELIANCE ₹1354 ▲</text>
+          <text x="280" y="70" fill="#10b981" font-size="7">TCS ₹…</text>
+          <text x="400" y="70" fill="#ef4444" font-size="7">INFY ▼</text>
+          <!-- AI Engine box -->
+          <rect x="150" y="88" width="510" height="210" rx="8" fill="#020617" stroke="#334155"/>
+          <text x="165" y="108" fill="#10b981" font-size="9" font-weight="bold">AI_QUANT_ENGINE</text>
+          <text x="250" y="108" fill="#64748b" font-size="6">TA v3.0</text>
+          <!-- Tabs -->
+          <rect x="165" y="118" width="48" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="172" y="130" fill="#94a3b8" font-size="5">📡 NEWS</text>
+          <rect x="217" y="118" width="62" height="18" rx="4" fill="#1e293b" stroke="#10b981"/><text x="222" y="130" fill="#10b981" font-size="5">🎯 PREDICT</text>
+          <rect x="283" y="118" width="48" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="288" y="130" fill="#94a3b8" font-size="5">📊 TRACK</text>
+          <rect x="335" y="118" width="48" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="340" y="130" fill="#94a3b8" font-size="5">💎 GEMS</text>
+          <rect x="387" y="118" width="52" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="392" y="130" fill="#94a3b8" font-size="5">⚡ SIGNAL</text>
+          <rect x="443" y="118" width="44" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="448" y="130" fill="#94a3b8" font-size="5">📅 DAILY</text>
+          <rect x="491" y="118" width="58" height="18" rx="4" fill="#1e293b" stroke="#475569"/><text x="496" y="130" fill="#94a3b8" font-size="5">🧠 LEARN</text>
+          <!-- Sample prediction row -->
+          <rect x="165" y="148" width="480" height="36" rx="6" fill="#022c22" stroke="#065f46" opacity="0.5"/>
+          <text x="175" y="164" fill="#10b981" font-size="8" font-weight="bold">TRENT</text>
+          <text x="220" y="164" fill="#6ee7b7" font-size="6">BULLISH</text>
+          <text x="280" y="164" fill="#94a3b8" font-size="6">Conf 62%</text>
+          <text x="350" y="164" fill="#94a3b8" font-size="6">Entry ₹4296 → Target ₹4450</text>
+          <text x="175" y="178" fill="#64748b" font-size="5">RSI momentum · Supertrend up · Regime: TREND</text>
+        </svg>
+      </div>
+      <p><strong>Tip:</strong> Most profit workflows start in <strong>Command Workspace</strong> (AI hub), then validate in <strong>Weekly Predictions</strong> and <strong>Live Prices</strong>.</p>
+    </div>
+    <aside class="power-rail">
+      <h4>Navigation</h4>
+      <ul>
+        <li>Workspace = AI brain</li>
+        <li>Weekly = calendar plan</li>
+        <li>Trust = proof of AI</li>
+        <li>Prices = live Yahoo feed</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 2</span></footer>
+</section>
+
+<!-- PAGE 3: LIVE PRICES -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>2. Live market prices</h2>
+      <p>Sidebar → <strong>💹 Live Prices</strong>. Real Yahoo Finance data — same source as Google Finance.</p>
+      <div class="mock">
+        <svg viewBox="0 0 680 200" xmlns="http://www.w3.org/2000/svg" font-family="Consolas,monospace">
+          <rect width="680" height="200" fill="#020617" stroke="#334155" rx="8"/>
+          <text x="16" y="24" fill="#f8fafc" font-size="10" font-weight="bold">💹 Market Prices — Last Close</text>
+          <text x="16" y="38" fill="#64748b" font-size="6">Yahoo Finance · market closed — last official close</text>
+          <rect x="480" y="12" width="90" height="18" rx="9" fill="#0f172a" stroke="#334155"/>
+          <circle cx="492" cy="21" r="3" fill="#f59e0b"/>
+          <text x="500" y="24" fill="#f59e0b" font-size="6">CLOSED · sync</text>
+          <rect x="16" y="48" width="648" height="16" fill="#0f172a"/>
+          <text x="20" y="59" fill="#64748b" font-size="6">TICKER · PRICE · CHANGE · % · BID · ASK · RANGE</text>
+          <rect x="16" y="68" width="648" height="22" fill="#022c22" opacity="0.3"/>
+          <text x="20" y="82" fill="#fff" font-size="7">TRENT</text>
+          <text x="120" y="82" fill="#fff" font-size="7" font-weight="bold">₹4296.50</text>
+          <text x="200" y="82" fill="#10b981" font-size="7">+126.10</text>
+          <text x="280" y="82" fill="#10b981" font-size="7">+3.02%</text>
+          <rect x="16" y="94" width="648" height="22" fill="#0f172a"/>
+          <text x="20" y="108" fill="#fff" font-size="7">AXISBANK</text>
+          <text x="120" y="108" fill="#fff" font-size="7" font-weight="bold">₹1285.40</text>
+          <text x="200" y="108" fill="#10b981" font-size="7">+32.10</text>
+          <text x="280" y="108" fill="#10b981" font-size="7">+2.56%</text>
+        </svg>
+      </div>
+      <h3>When to use</h3>
+      <ul>
+        <li><strong>LIVE</strong> (green) — session open; prices update with trades.</li>
+        <li><strong>LAST CLOSE</strong> (amber) — weekend/night; use for planning, not intraday scalping.</li>
+        <li>Filter <strong>🇮🇳 INDIAN</strong> vs <strong>🌐 INTL</strong> before comparing to your broker.</li>
+      </ul>
+    </div>
+    <aside class="power-rail">
+      <h4>Price feed</h4>
+      <ul>
+        <li>~100 symbols tracked</li>
+        <li>No fake price drift</li>
+        <li>Engine refresh ~3s on cloud</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 3</span></footer>
+</section>
+
+<!-- PAGE 4: WEEKLY -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>3. Weekly predictions — your week plan</h2>
+      <p>Sidebar → <strong>📅 Weekly Predictions</strong>. AI assigns top TA setups to each weekday with entry, target, stop, and catalyst text.</p>
+      <div class="mock">
+        <svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg" font-family="Consolas,monospace">
+          <rect width="680" height="220" fill="#020617" stroke="#334155" rx="8"/>
+          <text x="16" y="24" fill="#f8fafc" font-size="10" font-weight="bold">📅 Weekly AI Prediction Calendar</text>
+          <rect x="16" y="36" width="100" height="170" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="24" y="52" fill="#10b981" font-size="7" font-weight="bold">Monday</text>
+          <text x="24" y="68" fill="#94a3b8" font-size="6">09:15 AM · TRENT</text>
+          <text x="24" y="80" fill="#10b981" font-size="6">BULLISH · 58%</text>
+          <text x="24" y="92" fill="#64748b" font-size="5">Entry ₹4296 · SL ₹4180</text>
+          <rect x="124" y="36" width="100" height="170" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="132" y="52" fill="#38bdf8" font-size="7" font-weight="bold">Tuesday</text>
+          <text x="132" y="68" fill="#94a3b8" font-size="6">10:30 AM · RELIANCE</text>
+          <rect x="232" y="36" width="100" height="170" rx="6" fill="#0f172a" stroke="#334155"/>
+          <text x="240" y="52" fill="#94a3b8" font-size="7">Wed …</text>
+          <text x="340" y="100" fill="#64748b" font-size="7">← Scroll week · Only conf ≥35% shown</text>
+        </svg>
+      </div>
+      <h3>How to trade the weekly board</h3>
+      <ol>
+        <li>Monday morning: scan the week — note 2–3 highest confidence names.</li>
+        <li>Cross-check each on <strong>Signals</strong> tab (risk LOW/MEDIUM preferred).</li>
+        <li>Enter only if <strong>Daily</strong> direction agrees with weekly direction.</li>
+        <li>Set stop at the level shown — never widen stop emotionally.</li>
+      </ol>
+    </div>
+    <aside class="power-rail">
+      <h4>Weekly AI</h4>
+      <ul>
+        <li>RSI · MACD · Supertrend</li>
+        <li>Regime-aware scoring</li>
+        <li>Auto-saved to track record</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 4</span></footer>
+</section>
+
+<!-- PAGE 5: AI MODULES -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>4. AI Quant Engine — all modules explained</h2>
+      <table>
+        <tr><th>Tab</th><th>Purpose</th><th>Profit use</th></tr>
+        <tr><td>📡 NEWS</td><td>Live classified headlines + sentiment</td><td>Avoid trading into macro shocks</td></tr>
+        <tr><td>🎯 PREDICTIONS</td><td>Short &amp; long horizon ML+TA calls</td><td>Primary trade ideas</td></tr>
+        <tr><td>📊 TRACK</td><td>Resolved history + accuracy</td><td>Trust what works now</td></tr>
+        <tr><td>💎 GEMS</td><td>Undervalued momentum picks</td><td>Swing &amp; position entries</td></tr>
+        <tr><td>⚡ SIGNALS</td><td>Risk-ranked actionable alerts</td><td>Quick intraday/swing triggers</td></tr>
+        <tr><td>📅 DAILY</td><td>Today’s best setups + experience</td><td>Daily profit routine</td></tr>
+        <tr><td>🧠 LEARNING</td><td>AI self-improvement stats</td><td>See the engine get smarter</td></tr>
+        <tr><td>📐 STRATEGIES</td><td>Long-term style buckets</td><td>Invest &amp; hold roadmap</td></tr>
+      </table>
+      <div class="formula">Golden rule: NEWS (safe?) → PREDICTIONS (idea) → SIGNALS (risk) → TRACK (proof) → execute on LIVE PRICES</div>
+    </div>
+    <aside class="power-rail">
+      <h4>Symptoms AI reads</h4>
+      <ul>
+        <li>RSI overbought/oversold</li>
+        <li>MACD cross &amp; histogram</li>
+        <li>ADX trend strength</li>
+        <li>Bollinger squeeze</li>
+        <li>Volume surge</li>
+        <li>News sentiment shift</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 5</span></footer>
+</section>
+
+<!-- PAGE 6: GEMS & SIGNALS -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>5. 💎 Hidden Gems — find overlooked winners</h2>
+      <p>Gems = stocks where TA score is high but crowd attention is low. Look for <strong>score ≥ 70</strong> + bullish RSI/MACD alignment.</p>
+      <div class="mock">
+        <svg viewBox="0 0 680 100" xmlns="http://www.w3.org/2000/svg" font-family="Consolas,monospace">
+          <rect x="16" y="10" width="300" height="80" rx="8" fill="#0f172a" stroke="#10b981"/>
+          <text x="28" y="32" fill="#10b981" font-size="9" font-weight="bold">💎 SHRIRAMFIN</text>
+          <text x="28" y="48" fill="#94a3b8" font-size="7">Gem Score: 78 · RSI 58 · Trend MODERATE</text>
+          <text x="28" y="62" fill="#64748b" font-size="6">₹2341 · Hidden momentum building</text>
+          <text x="28" y="78" fill="#6ee7b7" font-size="6">→ Add to watchlist · Confirm on SIGNALS</text>
+        </svg>
+      </div>
+      <h2>6. ⚡ Signals — risk-first entries</h2>
+      <p>Each signal shows <strong>LOW / MEDIUM / HIGH</strong> risk, confidence %, and timeframe. Trade <strong>LOW</strong> first when learning.</p>
+      <div class="card">
+        <p><span class="badge">EXAMPLE</span> <strong>LOW risk · 67% conf · TRENT · 1–3 days</strong> — “Supertrend bullish, RSI 55, volume normal.” → Small position, tight stop below last swing low.</p>
+      </div>
+    </div>
+    <aside class="power-rail">
+      <h4>Gems vs Signals</h4>
+      <ul>
+        <li>Gems = discovery</li>
+        <li>Signals = execution timing</li>
+        <li>Combine both for edge</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 6</span></footer>
+</section>
+
+<!-- PAGE 7: DAILY PLAN -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>7. Daily profit plan (repeat every trading day)</h2>
+      <p>Tab: <strong>📅 DAILY</strong> in AI engine. Goal: small consistent gains — not lottery trades.</p>
+      <table>
+        <tr><th>Time (IST)</th><th>Action</th><th>Module</th></tr>
+        <tr><td>8:45 AM</td><td>Read macro banner + top NEWS headlines</td><td>Workspace / NEWS</td></tr>
+        <tr><td>9:00 AM</td><td>Check DAILY tab top 3 recommendations</td><td>DAILY</td></tr>
+        <tr><td>9:10 AM</td><td>Confirm LIVE badge on prices</td><td>Live Prices</td></tr>
+        <tr><td>9:15–9:30</td><td>Enter only if Weekly + Daily same direction</td><td>Weekly + DAILY</td></tr>
+        <tr><td>10:30 AM</td><td>Review open trades vs target/stop</td><td>Chart view</td></tr>
+        <tr><td>2:30 PM</td><td>Reduce size before close (NSE)</td><td>SESSION tab</td></tr>
+        <tr><td>3:20 PM</td><td>Exit intraday unless swing plan</td><td>—</td></tr>
+        <tr><td>After close</td><td>Log outcome — AI learns overnight</td><td>TRACK / 24×7 engine</td></tr>
+      </table>
+      <div class="formula">Daily target (beginner): 0.5%–1% account gain · Max 2 trades/day · Stop after 2 losses</div>
+      <h3>Daily vs weekly alignment</h3>
+      <p>When <strong>Daily BULLISH</strong> + <strong>Weekly BULLISH</strong> + signal quality <strong>GOOD/EXCELLENT</strong> → highest probability setup on the platform.</p>
+    </div>
+    <aside class="power-rail">
+      <h4>Daily discipline</h4>
+      <ul>
+        <li>Process &gt; prediction</li>
+        <li>Stop loss mandatory</li>
+        <li>Journal in TRACK tab</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 7</span></footer>
+</section>
+
+<!-- PAGE 8: PATTERNS & LONG TERM -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>8. Pattern decoding (charts)</h2>
+      <p>Open any stock in <strong>Chart</strong> view → enable <strong>🤖 AI panel</strong>. The engine detects candlestick patterns (engulfing, hammer, etc.) and shows <strong>BULLISH/BEARISH bias %</strong>.</p>
+      <ul>
+        <li><strong>Pattern + AI prediction agree</strong> → higher conviction.</li>
+        <li><strong>Pattern vs prediction conflict</strong> → wait or half size.</li>
+        <li>Use <strong>1h / 1d</strong> timeframe for swings; <strong>5m/15m</strong> only if experienced.</li>
+      </ul>
+      <h2>9. Long-term investment strategies</h2>
+      <p>Tab: <strong>STRATEGIES</strong> — buckets like quality compounders, dividend, growth. Use for <strong>months–years</strong>, not same rules as intraday.</p>
+      <div class="card">
+        <h3>Long-term playbook (z4fwan method)</h3>
+        <ol>
+          <li>Pick 5–8 names from STRATEGIES + high Trust accuracy history.</li>
+          <li>Buy in 3 tranches (33% each) on dips toward weekly support.</li>
+          <li>Hold through noise if weekly trend stays BULLISH.</li>
+          <li>Review quarterly — exit if weekly flips BEARISH + macro shock active.</li>
+        </ol>
+      </div>
+      <div class="formula">Long-term goal: 15–25% CAGR realistic · Not 10× in 30 days — compounding wins</div>
+    </div>
+    <aside class="power-rail">
+      <h4>Horizons</h4>
+      <ul>
+        <li>Hourly = scalp</li>
+        <li>Daily = swing</li>
+        <li>Weekly = position</li>
+        <li>Monthly = invest</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 8</span></footer>
+</section>
+
+<!-- PAGE 9: TRUST & EXAMPLE -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>10. AI Trust Engine — verify before you trust</h2>
+      <p>Sidebar → <strong>🔍 AI Trust Engine</strong>. Shows resolution rate, calibration, and whether past confidence matched outcomes.</p>
+      <p>Only increase size when <strong>live accuracy &gt; 55%</strong> and macro banner is inactive.</p>
+      <h2>11. Worked example (step-by-step)</h2>
+      <div class="card">
+        <p><strong>Setup:</strong> Weekly shows TRENT BULLISH 58%. Daily agrees. Gem score 72. Signal LOW risk 65%.</p>
+        <p><strong>Entry:</strong> ₹4296 (live price). <strong>Stop:</strong> ₹4180 (below support). <strong>Target:</strong> ₹4450 (weekly TA target).</p>
+        <p><strong>Risk:</strong> ₹116/share. If account ₹1,00,000, risk 1% = ₹1000 → ~8 shares max.</p>
+        <p><strong>Reward:</strong> ₹154/share × 8 = ₹1232 vs risk ₹928 → R:R ≈ 1.3:1 (acceptable if confidence high).</p>
+      </div>
+      <div class="formula">Position size = (Account × Risk%) ÷ (Entry − Stop)</div>
+    </div>
+    <aside class="power-rail">
+      <h4>Trust metrics</h4>
+      <ul>
+        <li>Resolved predictions</li>
+        <li>Calibration buckets</li>
+        <li>Failure analysis AI</li>
+        <li>24/7 autonomous learning</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 9</span></footer>
+</section>
+
+<!-- PAGE 10: LONG VISION + AI EVOLUTION -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>12. Long-term vision — invest today, compound for years</h2>
+      <p>Quantum Alpha is built to <strong>learn from every resolved prediction</strong>. Your edge grows as the AI ingests more market cycles.</p>
+      <div class="timeline">
+        <div class="timeline-item"><strong>Today (2026)</strong><p>ML models per ticker, news LLM pipeline, trust tracking, 100+ symbols, Yahoo live feed, Supabase memory.</p></div>
+        <div class="timeline-item"><strong>Year 1–2</strong><p>Richer pattern library, better calibration, sector rotation models, improved Indian feed options.</p></div>
+        <div class="timeline-item"><strong>Year 3–5</strong><p>Deeper backtests, multi-timeframe fusion, personalized risk profiles per user style.</p></div>
+        <div class="timeline-item"><strong>Year 5+</strong><p>Institutional-grade analytics layer — still guided by human discipline and risk rules.</p></div>
+      </div>
+      <h3>Wealth metaphor</h3>
+      <p>Think of each correct AI-assisted trade as a <strong>brick</strong>. Daily bricks (small wins) + yearly bricks (long holds) build the wall. The AI helps you place bricks — it does not guarantee the wall.</p>
+      <div class="mock">
+        <svg viewBox="0 0 680 80" xmlns="http://www.w3.org/2000/svg">
+          <text x="20" y="30" fill="#64748b" font-size="8" font-family="Consolas">Today ──► Year 1 ──► Year 3 ──► Year 5+</text>
+          <rect x="20" y="40" width="80" height="30" fill="#064e3b" stroke="#10b981" rx="4"/>
+          <rect x="110" y="35" width="90" height="35" fill="#065f46" stroke="#10b981" rx="4"/>
+          <rect x="210" y="28" width="100" height="42" fill="#047857" stroke="#10b981" rx="4"/>
+          <rect x="320" y="20" width="120" height="50" fill="#10b981" stroke="#6ee7b7" rx="4"/>
+          <text x="340" y="50" fill="#022c22" font-size="8" font-weight="bold" font-family="Consolas">AI + You</text>
+        </svg>
+      </div>
+    </div>
+    <aside class="power-rail">
+      <h4>z4fwan™ promise</h4>
+      <ul>
+        <li>Transparent tracking</li>
+        <li>No fake prices</li>
+        <li>Continuous learning</li>
+        <li>Your trademark edge</li>
+      </ul>
+      <div class="power-stat"><div class="num">24/7</div><div class="lbl">Engine uptime</div></div>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 10</span></footer>
+</section>
+
+<!-- PAGE 11: RISK -->
+<section class="page">
+  <div class="page-inner">
+    <div class="main">
+      <h2>13. When NOT to trade</h2>
+      <ul>
+        <li class="danger">Macro shock banner active (red ring on AI panel)</li>
+        <li class="danger">AI Trust accuracy below 50% on recent sample</li>
+        <li class="danger">Daily and weekly directions oppose each other</li>
+        <li class="danger">Signal quality POOR or confidence &lt; 40%</li>
+        <li class="danger">You are revenge-trading after losses</li>
+      </ul>
+      <h2>14. Legal disclaimer</h2>
+      <p>This guide is <strong>educational</strong> for users of the Quantum Alpha Terminal. <strong>z4fwan™</strong> and the platform do not provide licensed investment advice. Markets involve risk of total loss. Past AI accuracy does not guarantee future results. Always verify with your broker and comply with local regulations (SEBI, etc.).</p>
+      <div class="card" style="text-align:center;margin-top:20px;">
+        <p style="font-family:var(--mono);font-size:18pt;color:var(--emerald);font-weight:800;letter-spacing:0.2em;">z4fwan™</p>
+        <p style="font-size:9pt;">Quantum Alpha Terminal · Master Guide v3.0</p>
+        <p style="font-size:8pt;color:#64748b;">trading-dashboard-awoe.onrender.com</p>
+      </div>
+      <p style="margin-top:12px;font-size:8pt;">To save as PDF: open this file in Chrome → Print → Save as PDF → enable <strong>Background graphics</strong>. Or run: <code>node scripts/generate-guide-pdf.mjs</code></p>
+    </div>
+    <aside class="power-rail">
+      <h4>Remember</h4>
+      <ul>
+        <li>Risk 1–2% max</li>
+        <li>Plan the trade</li>
+        <li>Trade the plan</li>
+        <li>Let AI inform — you decide</li>
+      </ul>
+    </aside>
+  </div>
+  <footer class="page-footer"><span class="brand">z4fwan™</span><span>Quantum Alpha Terminal</span><span>Page 11</span></footer>
+</section>
+
+</body>
+</html>

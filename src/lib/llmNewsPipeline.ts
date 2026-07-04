@@ -9,6 +9,7 @@ import { getEngineState } from './engineState';
 import { getPredictionsByTicker, addPrediction } from './predictionStore';
 import { calculateEventProbability } from './probabilityEngine';
 import { verifySource } from './sourceVerificationEngine';
+import { getQuickConsensus } from './multiLLMVoting';
 
 const BREAKING_KEYWORDS = [
   'breaking:', 'breaking news', 'urgent:', 'just in:', 'developing:', 'state of emergency',
@@ -126,7 +127,7 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
         historicalMatchCount: 0,
       };
 
-      let probResult = calculateEventProbability(probInputs);
+      const probResult = calculateEventProbability(probInputs);
       
       item.llmAnalyzed = true;
       item.llmReasoning = analysis.reasoning;
@@ -141,26 +142,70 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
       if (merged.length > 0) item.tickers = merged;
       item.summary = analysis.reasoning.slice(0, 280) || item.headline;
 
-      // Probability Engine Signal Alert - STRICT CORPORATE ACTIONS ONLY for Telegram
-      const isCorporateAction = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(analysis.eventType);
-      if (isCorporateAction && (item.impactScore >= 80 || probResult.signal.includes('BUY') || probResult.signal.includes('SELL'))) {
+      // Multi-LLM Consensus Check (Phase 4: Voting System)
+      // For ultra-high confidence signals, get quick consensus from multiple LLMs
+      let multiLLMConsensus = null;
+      let hasMultiLLMConsensus = false;
+      
+      // Only run multi-LLM voting for high-impact events (to save API calls)
+      if (probResult.probability >= 75 && probResult.signal !== 'IGNORE') {
+        try {
+          multiLLMConsensus = await getQuickConsensus(item.headline, item.source);
+          hasMultiLLMConsensus = multiLLMConsensus?.hasConsensus || false;
+          (item as any).multiLLMConsensus = multiLLMConsensus;
+        } catch {
+          // Silent fail - don't block signal on voting error
+        }
+      }
+
+      // Probability Engine Signal Alert - Send for HIGH IMPACT events
+      const isHighImpact = probResult.signal !== 'IGNORE' && probResult.probability >= 65;
+      const verificationScore = (item as any).verificationScore as number | undefined;
+      const isVerifiedHighConfidence = verificationScore && verificationScore >= 70 && probResult.confidence === 'High';
+      const isCorporateAction = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND', 'EARNINGS_BEAT', 'PROFIT_SURGE', 'ACQUISITION', 'MERGER', 'FDA_APPROVAL', 'DEBT_REDUCTION', 'PROMOTER_BUYING'].includes(analysis.eventType);
+      
+      // Send signal if: High probability OR verified high confidence OR corporate action with good score
+      // Extra boost if multi-LLM consensus agrees
+      const shouldSendSignal = isHighImpact || isVerifiedHighConfidence || (isCorporateAction && item.impactScore >= 75);
+      
+      if (shouldSendSignal) {
         const signalIcon = probResult.signal.includes('BUY') ? '🟢 ' + probResult.signal : probResult.signal.includes('SELL') ? '🔴 ' + probResult.signal : '🚨 ' + probResult.signal;
         
         const driversList = analysis.drivers?.map(d => `✓ ${d}`).join('\n') || 'None';
         const risksList = analysis.risks?.map(r => `✗ ${r}`).join('\n') || 'None';
         
-        const buildMsg = (pRes: typeof probResult) => `${signalIcon} | Prob: ${pRes.probability}% | Conf: ${pRes.confidence}
+        // Determine holding period based on event type
+        const getHoldingPeriod = (eventType: string) => {
+          const map: Record<string, string> = {
+            'ORDER_WIN': '⚡ INTRADAY',
+            'FDA_APPROVAL': '⚡ INTRADAY',
+            'EARNINGS_BEAT': '📅 SWING (2-5 Days)',
+            'PROFIT_SURGE': '📅 SWING (2-5 Days)',
+            'ACQUISITION': '📅 SWING (1-2 Weeks)',
+            'MERGER': '📅 SWING (1-2 Weeks)',
+            'CORPORATE_ACTION': '📅 SWING (2-5 Days)',
+            'DEBT_REDUCTION': '📈 LONG TERM',
+            'PROMOTER_BUYING': '📈 LONG TERM',
+            'TURNAROUND': '📅 SWING (1-2 Weeks)',
+          };
+          return map[eventType] || '📅 SWING (2-5 Days)';
+        };
+        
+        const holdingPeriod = getHoldingPeriod(analysis.eventType);
+        
+        // Multi-LLM consensus badge
+        const consensusBadge = hasMultiLLMConsensus 
+          ? `🤖 *Multi-LLM Consensus: ${multiLLMConsensus?.consensusStrength || 'UNKNOWN'}* (${multiLLMConsensus?.voteCount || 0}/${multiLLMConsensus?.totalVotes || 0} LLMs agree)\n` 
+          : '';
 
-*${item.tickers.join(', ')}*
-${item.sentiment} (Event: ${analysis.eventType})
-
-Headline: ${item.headline}
-
-*Drivers:*
-${driversList}
-
-*Risks:*
-${risksList}`;
+        const buildMsg = (pRes: typeof probResult) => 
+          `${signalIcon} | Prob: ${pRes.probability}% | Conf: ${pRes.confidence}\n\n` +
+          `*${item.tickers.join(', ')}*\n` +
+          `${item.sentiment} (Event: ${analysis.eventType})\n\n` +
+          `${consensusBadge}🎯 *Holding Period: ${holdingPeriod}*\n\n` +
+          `Headline: ${item.headline}\n\n` +
+          `*Drivers:*\n${driversList}\n\n` +
+          `*Risks:*\n${risksList}`;
 
         const sentMsg = await sendTelegramMessage(buildMsg(probResult));
 

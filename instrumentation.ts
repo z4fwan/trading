@@ -17,6 +17,11 @@ export async function register() {
     return;
   }
 
+  if (process.env.CUSTOM_SERVER === 'true' && process.env.IS_WORKER !== 'true') {
+    console.log('[Instrumentation] Custom Server detected — skipping background engine in Main Thread (Worker will handle it)');
+    return;
+  }
+
   const { startBackgroundEngine } = await import('./src/lib/backgroundEngine');
   startBackgroundEngine();
 }
