@@ -8,3 +8,17 @@ node_modules/
 demo-annual-report-preview.html
 lint-out.txt
 niva*
+
+# Large binaries
+libfrida-gadget.so
+*.so
+
+# Python cache
+__pycache__/
+*.pyc
+backend/data/*.db
+backend/data/*.sqlite
+backend/stage_*.json
+
+# Binary docs
+docs/*.pdf
