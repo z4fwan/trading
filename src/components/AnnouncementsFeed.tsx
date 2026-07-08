@@ -4,6 +4,10 @@ import SignalCard from './SignalCard';
 import SignalDrawer from './SignalDrawer';
 import { verifySource, classifyEventType, type VerificationResult } from '@/lib/sourceVerificationEngine';
 import { getCachedAnnouncements, cacheAnnouncement, cacheAnnouncementBatch } from '@/lib/announcementCache';
+import { saveAnnouncement, saveAnnouncementBatch, getDailyCounts, getAnnouncementsByDate, getTotalAnnouncementCount } from '@/lib/announcementDB';
+import { sendAnnouncementAlert } from '@/lib/telegramBot';
+import { useToast } from './ToastProvider';
+import { startAnnouncementLearning, type LearningInsight, getLastLearningInsight } from '@/lib/announcementLearning';
 
 interface Announcement {
   id: string;
@@ -104,6 +108,43 @@ export default function AnnouncementsFeed({
     telegramSent: 0
   });
 
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [dailyCounts, setDailyCounts] = useState<Record<number, number>>({});
+  const [totalStored, setTotalStored] = useState(0);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const calendarRef = useRef<HTMLDivElement | null>(null);
+
+  const { toast } = useToast();
+
+  useEffect(() => {
+    getDailyCounts(calendarMonth.getFullYear(), calendarMonth.getMonth()).then(setDailyCounts);
+  }, [calendarMonth]);
+
+  useEffect(() => {
+    getTotalAnnouncementCount().then(setTotalStored);
+  }, []);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (calendarRef.current && !calendarRef.current.contains(e.target as Node)) {
+        setShowCalendar(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const [learningInsight, setLearningInsight] = useState<LearningInsight | null>(null);
+  const [showLearning, setShowLearning] = useState(false);
+
+  useEffect(() => {
+    const existing = getLastLearningInsight();
+    if (existing) setLearningInsight(existing);
+    const stop = startAnnouncementLearning(setLearningInsight);
+    return stop;
+  }, []);
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const connectRef = useRef<() => void>(() => {});
@@ -196,7 +237,14 @@ export default function AnnouncementsFeed({
               };
             });
             cacheAnnouncementBatch(verified);
+            saveAnnouncementBatch(verified).then(count => {
+              if (count > 0) setTotalStored(prev => prev + count);
+              getDailyCounts(calendarMonth.getFullYear(), calendarMonth.getMonth()).then(setDailyCounts);
+            });
             setItems(verified);
+            if (verified.length > 0) {
+              toast('info', `Loaded ${verified.length} announcements`, `From V5 Engine history`, 3000);
+            }
           } else if (data.symbol) {
             // Single announcement with verification
             const mappedType = classifyAndMapEventType(data as Announcement);
@@ -218,6 +266,32 @@ export default function AnnouncementsFeed({
                 }
               };
               cacheAnnouncement(newItem);
+              saveAnnouncement(newItem);
+              
+              const cat = mappedType || data.category || 'GENERAL';
+              const sig = data.ai_analysis?.trading_signal || data.prediction?.direction || '';
+              toast(
+                sig === 'BUY' || sig === 'STRONG_BUY' ? 'success' :
+                sig === 'SELL' || sig === 'STRONG_SELL' ? 'warning' : 'info',
+                `${data.symbol} — ${cat.replace(/_/g, ' ')}`,
+                data.headline?.slice(0, 120),
+                5000
+              );
+              
+              sendAnnouncementAlert({
+                id: data.id,
+                symbol: data.symbol,
+                company: data.company || data.symbol,
+                headline: data.headline || '',
+                category: cat,
+                ai_analysis: data.ai_analysis,
+                prediction: data.prediction,
+              });
+              
+              setPipelineStats(prev => ({
+                ...prev,
+                telegramSent: prev.telegramSent + 1,
+              }));
               
               setTimeout(() => {
                 setItems(current =>
@@ -263,6 +337,11 @@ export default function AnnouncementsFeed({
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
+      if (selectedDate) {
+        const itemDate = new Date(item.announcement_time);
+        const sd = new Date(selectedDate + 'T00:00:00.000Z');
+        return itemDate.getDate() === sd.getDate() && itemDate.getMonth() === sd.getMonth() && itemDate.getFullYear() === sd.getFullYear();
+      }
       if (dateFilter === 'all') return true;
       const itemDate = new Date(item.announcement_time);
       const today = new Date();
@@ -278,7 +357,7 @@ export default function AnnouncementsFeed({
       
       return true;
     });
-  }, [items, dateFilter]);
+  }, [items, dateFilter, selectedDate]);
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -296,6 +375,7 @@ export default function AnnouncementsFeed({
             <div className="text-[10px] font-mono"><span className="text-slate-500">Passed Filters:</span> <span className="text-white font-bold">{pipelineStats.passedFilters}</span></div>
             <div className="text-[10px] font-mono"><span className="text-slate-500">High Impact:</span> <span className="text-white font-bold">{pipelineStats.highImpact}</span></div>
             <div className="text-[10px] font-mono"><span className="text-slate-500">Telegram Sent:</span> <span className="text-white font-bold">{pipelineStats.telegramSent}</span></div>
+            <div className="text-[10px] font-mono"><span className="text-slate-500">Stored:</span> <span className="text-white font-bold">{totalStored}</span></div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -307,13 +387,14 @@ export default function AnnouncementsFeed({
             <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`} />
             {connected ? 'LIVE' : 'DISCONNECTED'}
           </span>
+
           <div className="flex bg-slate-800/50 rounded-lg p-0.5 border border-slate-700/50">
             {(['all', 'today', 'yesterday'] as const).map(f => (
               <button
                 key={f}
-                onClick={() => setDateFilter(f)}
+                onClick={() => { setDateFilter(f); setSelectedDate(null); }}
                 className={`text-[9px] font-mono px-2.5 py-1 rounded-md transition-colors ${
-                  dateFilter === f
+                  !selectedDate && dateFilter === f
                     ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
                     : 'text-slate-400 hover:text-white border border-transparent'
                 }`}
@@ -322,8 +403,74 @@ export default function AnnouncementsFeed({
               </button>
             ))}
           </div>
+
+          <div className="relative" ref={calendarRef}>
+            <button
+              onClick={() => setShowCalendar(!showCalendar)}
+              className={`text-[9px] font-mono px-2.5 py-1 rounded-lg border transition-colors ${
+                selectedDate
+                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/30'
+                  : 'text-slate-400 hover:text-white border-slate-700/50 hover:border-slate-600'
+              }`}
+            >
+              {selectedDate || 'DATE'}
+            </button>
+            {showCalendar && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-slate-900 border border-slate-700 rounded-xl p-3 shadow-2xl shadow-black/50 w-64">
+                <div className="flex items-center justify-between mb-2">
+                  <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))} className="text-slate-400 hover:text-white text-[10px] px-1">◀</button>
+                  <span className="text-[10px] font-mono text-white font-bold">{calendarMonth.toLocaleString('en-US', { month: 'long', year: 'numeric' })}</span>
+                  <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))} className="text-slate-400 hover:text-white text-[10px] px-1">▶</button>
+                </div>
+                <div className="grid grid-cols-7 gap-0.5 text-center">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                    <div key={d} className="text-[7px] font-mono text-slate-600 py-1">{d}</div>
+                  ))}
+                  {(() => {
+                    const year = calendarMonth.getFullYear();
+                    const month = calendarMonth.getMonth();
+                    const firstDay = new Date(year, month, 1).getDay();
+                    const daysInMonth = new Date(year, month + 1, 0).getDate();
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const cells = [];
+                    for (let i = 0; i < firstDay; i++) {
+                      cells.push(<div key={`e${i}`} />);
+                    }
+                    for (let d = 1; d <= daysInMonth; d++) {
+                      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                      const count = dailyCounts[d] || 0;
+                      const isSelected = selectedDate === dateStr;
+                      const isToday = dateStr === todayStr;
+                      cells.push(
+                        <button
+                          key={d}
+                          onClick={() => { setSelectedDate(dateStr); setDateFilter('all'); setShowCalendar(false); }}
+                          className={`relative text-[9px] font-mono py-1.5 rounded-md transition-colors ${
+                            isSelected
+                              ? 'bg-blue-500/30 text-blue-300'
+                              : isToday
+                              ? 'bg-slate-700/50 text-white'
+                              : 'text-slate-400 hover:bg-slate-800'
+                          }`}
+                        >
+                          {d}
+                          {count > 0 && (
+                            <span className="absolute -top-0.5 -right-0.5 bg-emerald-500 text-white text-[5px] rounded-full w-3 h-3 flex items-center justify-center font-bold">
+                              {count > 9 ? '9+' : count}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    }
+                    return cells;
+                  })()}
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={() => setItems([])}
+            onClick={() => { setItems([]); setSelectedDate(null); }}
             className="text-[8px] font-mono text-slate-500 hover:text-white px-2 py-1 rounded-lg border border-slate-700/50 hover:border-slate-600"
           >
             Clear
@@ -334,6 +481,49 @@ export default function AnnouncementsFeed({
       {error && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-[9px] font-mono text-red-300">
           {error}
+        </div>
+      )}
+
+      {learningInsight && (
+        <div className="rounded-xl border border-indigo-500/20 bg-indigo-500/5">
+          <button
+            onClick={() => setShowLearning(!showLearning)}
+            className="w-full flex items-center justify-between p-3 text-[9px] font-mono text-indigo-300"
+          >
+            <span>🧠 AI Learning — {learningInsight.totalAnalyzed} announcements analyzed</span>
+            <span className="text-slate-500">{showLearning ? '▲' : '▼'}</span>
+          </button>
+          {showLearning && (
+            <div className="px-3 pb-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <div className="text-[7px] font-mono text-slate-500 uppercase mb-1">Top Categories</div>
+                {learningInsight.topCategories.slice(0, 5).map(c => (
+                  <div key={c.category} className="flex justify-between text-[8px] font-mono py-0.5">
+                    <span className="text-slate-300">{c.category.replace(/_/g, ' ')}</span>
+                    <span className="text-indigo-400">{c.count} ({c.winRate}%)</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div className="text-[7px] font-mono text-slate-500 uppercase mb-1">Sector Activity</div>
+                {learningInsight.sectorActivity.slice(0, 5).map(s => (
+                  <div key={s.sector} className="flex justify-between text-[8px] font-mono py-0.5">
+                    <span className="text-slate-300">{s.sector}</span>
+                    <span className="text-indigo-400">{s.count} ({s.avgScore})</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <div className="text-[7px] font-mono text-slate-500 uppercase mb-1">Signal Breakdown</div>
+                {learningInsight.signalBreakdown.map(s => (
+                  <div key={s.signal} className="flex justify-between text-[8px] font-mono py-0.5">
+                    <span className="text-slate-300">{s.signal.replace(/_/g, ' ')}</span>
+                    <span className="text-indigo-400">{s.count}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 

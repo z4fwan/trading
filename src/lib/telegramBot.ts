@@ -177,6 +177,53 @@ export async function sendTelegramMessage(text: string): Promise<{ message_id: n
   return null;
 }
 
+export async function sendAnnouncementAlert(announcement: {
+  id: string;
+  symbol: string;
+  company: string;
+  headline: string;
+  category: string;
+  ai_analysis?: { event_type?: string; trading_signal?: string; expected_movement_pct?: string };
+  prediction?: { direction?: string; momentum_score?: number };
+}): Promise<void> {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+  const hash = `ANN|${announcement.id}`;
+  if (notifiedItems.has(hash)) return;
+  notifiedItems.add(hash);
+
+  if (notifiedItems.size > 500) {
+    const first = notifiedItems.values().next().value;
+    if (first != null) notifiedItems.delete(first as string);
+  }
+
+  const cat = announcement.ai_analysis?.event_type || announcement.category || 'ALERT';
+  const signal = announcement.ai_analysis?.trading_signal || announcement.prediction?.direction || 'NEUTRAL';
+  const emoji = signal === 'BUY' || signal === 'STRONG_BUY' ? '🟢' : signal === 'SELL' || signal === 'STRONG_SELL' ? '🔴' : '🔵';
+  const movePct = announcement.ai_analysis?.expected_movement_pct || 'N/A';
+  const score = announcement.prediction?.momentum_score ?? 'N/A';
+
+  const text = `
+${emoji} <b>CORPORATE ANNOUNCEMENT</b>
+<b>${announcement.symbol}</b> — ${announcement.company}
+<b>Type:</b> ${cat.replace(/_/g, ' ')}
+<b>Signal:</b> ${signal} ${movePct !== 'N/A' ? `| Expected: ${movePct}` : ''} ${score !== 'N/A' ? `| Score: ${score}` : ''}
+
+<b>Headline:</b> ${escapeHtml(announcement.headline)}
+`;
+
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    await httpsPost(url, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: 'HTML',
+    });
+  } catch (error) {
+    console.warn(`[Telegram] Error sending announcement alert:`, error);
+  }
+}
+
 export async function editTelegramMessage(chatId: number | string, messageId: number, newText: string): Promise<boolean> {
   if (!TELEGRAM_BOT_TOKEN) return false;
   try {
