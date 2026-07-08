@@ -172,7 +172,7 @@ export async function sendEnhancedTelegramSignal(signal: EnhancedTradeSignal): P
     const message = formatEnhancedMessage(signal);
     const result = await bot.sendMessage(TELEGRAM_CHAT_ID, message, {
       parse_mode: 'Markdown',
-      disable_web_page_preview: true,
+      link_preview_options: { is_disabled: true },
     });
     
     console.log(`[Telegram] Signal sent: ${signal.ticker} ${signal.signal}`);
@@ -207,7 +207,7 @@ export async function sendMarketShockAlert(
   try {
     return await bot.sendMessage(TELEGRAM_CHAT_ID, message, {
       parse_mode: 'Markdown',
-      disable_web_page_preview: true,
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[Telegram] Error sending shock alert:', error);
@@ -251,7 +251,7 @@ export async function sendDailySummary(data: {
   try {
     return await bot.sendMessage(TELEGRAM_CHAT_ID, message, {
       parse_mode: 'Markdown',
-      disable_web_page_preview: true,
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[Telegram] Error sending daily summary:', error);
@@ -307,7 +307,7 @@ export async function sendInstitutionalFlowAlert(data: {
   try {
     return await bot.sendMessage(TELEGRAM_CHAT_ID, message, {
       parse_mode: 'Markdown',
-      disable_web_page_preview: true,
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     console.error('[Telegram] Error sending institutional flow alert:', error);

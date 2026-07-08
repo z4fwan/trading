@@ -11,7 +11,8 @@ from pathlib import Path
 
 from event_database import EventDatabase
 from feature_store import FeatureStore
-from ml_ensemble import MLEnsemble
+from ml_ensemble import ModelArena
+from model_registry import ModelRegistry
 from backtester import WalkForwardBacktester
 from online_learner import OnlineLearner
 from execution_engine import ExecutionIntelligence
@@ -35,7 +36,8 @@ class QuantumAlphaV3:
         # Initialize all components
         self.event_db = EventDatabase(self.config.get('event_db_path', 'data/event_database.db'))
         self.feature_store = FeatureStore(self.config.get('feature_store_path', 'data/feature_store.db'))
-        self.ml_ensemble = MLEnsemble(self.config.get('model_path', 'models/ml_ensemble'))
+        self.registry = ModelRegistry("data/model_registry.db")
+        self.ml_ensemble = ModelArena(self.registry)
         self.backtester = WalkForwardBacktester(self.config.get('initial_capital', 1000000))
         self.online_learner = OnlineLearner(self.config.get('learning_db_path', 'data/online_learning.db'))
         self.execution_engine = ExecutionIntelligence(self.config.get('execution_db_path', 'data/execution_intelligence.db'))
@@ -96,7 +98,8 @@ class QuantumAlphaV3:
             Prediction with probability, explanation, and execution recommendations
         """
         if not self.is_trained:
-            return self._fallback_prediction(event_data)
+            # V4 Institutional: Never silently fail
+            raise RuntimeError(f"ModelNotTrainedError: expected model location {self.config.get('model_path', 'models/ml_ensemble')}, timestamp: {datetime.now().isoformat()}")
         
         # Generate prediction ID
         prediction_id = self._generate_prediction_id(event_data)
@@ -250,9 +253,9 @@ class QuantumAlphaV3:
         }
     
     def _store_training_results(self, metrics: Dict):
-        """Store training results"""
-        # Implementation would store to database
-        pass
+        """Store training results to ML Experiment DB"""
+        print(f"MLflow Integration Pending (Phase 2). Metrics generated: {metrics}")
+        # Supabase/MLFlow tracking will be injected here. No silent passes.
     
     def _get_model_version(self) -> str:
         """Get current model version"""
@@ -263,15 +266,7 @@ class QuantumAlphaV3:
         raw = f"{event_data.get('ticker', '')}_{event_data.get('timestamp', '')}_{datetime.now().timestamp()}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
     
-    def _fallback_prediction(self, event_data: Dict) -> Dict:
-        """Fallback prediction when model not trained"""
-        return {
-            'prediction_id': self._generate_prediction_id(event_data),
-            'ticker': event_data.get('ticker', ''),
-            'signal': 'NO_TRADE',
-            'probability': 0.5,
-            'message': 'Model not trained yet. Please train the model first.'
-        }
+    # _fallback_prediction removed in V4 to strictly enforce ModelNotTrainedError
     
     def _calculate_expected_return(self, probability: float, signal: str) -> float:
         """Calculate expected return based on probability"""
@@ -293,13 +288,11 @@ class QuantumAlphaV3:
     
     def _store_prediction(self, prediction: Dict, event_data: Dict):
         """Store prediction for tracking"""
-        # Implementation would store to database
-        pass
+        print(f"Operational DB Write Deferred to TS Edge (Phase 1). Prediction ID: {prediction['prediction_id']}")
     
     def _get_prediction(self, prediction_id: str) -> Optional[Dict]:
         """Retrieve stored prediction"""
-        # Implementation would retrieve from database
-        return None
+        raise NotImplementedError("Supabase retrieval must be executed by Operational DB service.")
     
     def _retrain_if_needed(self):
         """Check if retraining is needed and retrain"""
@@ -307,9 +300,8 @@ class QuantumAlphaV3:
         
         # Retrain if we have enough new data and performance is degrading
         if metrics['total_predictions'] >= 100:
-            print("Retraining model with new data...")
-            # Would implement actual retraining logic
-            pass
+            print("Triggering retraining pipeline with new data...")
+            self.train()
 
 
 # Example usage

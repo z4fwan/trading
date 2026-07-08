@@ -5,6 +5,7 @@ import { calculateIndicators, detectRegime, detectSmartMoney, buildCandleHistory
 import { INDIAN_EQUITY_TICKERS, NIFTY_50_TICKERS, getTickerName } from '@/lib/marketConfig';
 import { getExchangeStatus } from '@/lib/exchangeHours';
 import { getSupabase } from '@/lib/supabase';
+import { fetchRealGlobalCues, type GlobalCuesData } from '@/lib/dataVerificationEngine';
 import SmoothPrice from '@/components/SmoothPrice';
 
 // === Momentum Score Calculation ===
@@ -21,11 +22,12 @@ interface MomentumStock {
   momentumRank: 'VERY_HIGH' | 'HIGH' | 'MODERATE' | 'LOW';
   ta: TAIndicators | null;
   smartMoney: { accumulation: number; distribution: number };
-  preMarketGap: number; // Gap up/down from previous close
+  preMarketGap: number;
   intradayHigh: number;
   intradayLow: number;
   intradayRange: number;
   isPreMarket: boolean;
+  volatilityRisk: number;
   prediction: {
     direction: 'BULLISH' | 'BEARISH';
     confidence: number;
@@ -254,7 +256,7 @@ export default function HighMomentumScanner() {
   const [lastUpdated, setLastUpdated] = useState('');
   const [config, setConfig] = useState<ScannerConfig>(DEFAULT_CONFIG);
   const [selectedStock, setSelectedStock] = useState<string | null>(null);
-  const [globalCues, setGlobalCues] = useState({ usClose: 0.5, asianMarkets: 0.3, giftNifty: 0.2 });
+  const [globalCues, setGlobalCues] = useState<GlobalCuesData>({ usClose: 0, asianMarkets: 0, giftNifty: 0, vix: 15, timestamp: 0, usMarketStatus: 'LOADING', asianMarketStatus: 'LOADING', isLive: false });
   const [executedTrades, setExecutedTrades] = useState<Set<string>>(new Set());
   const [dynamicUniverse, setDynamicUniverse] = useState<string[]>([]);
   const lastScanRef = useRef(0);
@@ -407,28 +409,10 @@ export default function HighMomentumScanner() {
 
       if (finalScore < config.minMomentumScore) continue;
 
-      // Auto-Execution Logic for Paper Trading
-      if (finalScore >= 80) {
-        const supabase = getSupabase();
-        if (supabase && !executedTrades.has(ticker)) {
-          setExecutedTrades(prev => new Set(prev).add(ticker));
-          const tradeData = {
-            ticker: ticker,
-            direction: 'BUY',
-            entry_price: current.price,
-            target_price: current.price * 1.05, // 5% default target
-            stop_loss: current.price * 0.98, // 2% stop loss
-            status: 'OPEN',
-            confidence: finalScore,
-            reasoning: 'Automated high momentum trigger',
-            created_at: Date.now()
-          };
-          // Non-blocking fire and forget execution
-          (supabase as any).from('paper_trades').insert(tradeData).then(({ error }: any) => {
-            if (error) console.error("Paper trade execution failed:", error);
-            else console.log(`🚀 Automated Paper Trade Executed: BUY ${ticker} @ ₹${current.price}`);
-          });
-        }
+      // Track high-momentum candidates for user review (NOT auto-executed)
+      if (finalScore >= 80 && !executedTrades.has(ticker)) {
+        setExecutedTrades(prev => new Set(prev).add(ticker));
+        // Candidate is flagged in UI for user to review and manually execute
       }
 
       const momentumRank = getMomentumRank(finalScore);
@@ -470,7 +454,7 @@ export default function HighMomentumScanner() {
         volume,
         avgVolume,
         volumeRatio: parseFloat(volumeRatio.toFixed(2)),
-        momentumScore,
+        momentumScore: finalScore,
         momentumRank,
         ta,
         smartMoney,
@@ -479,6 +463,7 @@ export default function HighMomentumScanner() {
         intradayLow: hl?.low || current.price,
         intradayRange: hl ? parseFloat(((hl.high - hl.low) / hl.low * 100).toFixed(2)) : 0,
         isPreMarket: marketStatus.isPreMarket,
+        volatilityRisk: ta ? parseFloat(Math.min(100, (ta.atr / current.price) * 100 * 5).toFixed(1)) : 50,
         prediction,
       });
     }
@@ -503,9 +488,20 @@ export default function HighMomentumScanner() {
     return () => clearInterval(interval);
   }, [scanMomentumStocks]);
 
-  // Global cues (static defaults until native API implemented)
+  // Global cues fetched from live Yahoo Finance data
   useEffect(() => {
-    // Macro API deprecated, using default state cues
+    let active = true;
+    const load = async () => {
+      try {
+        const cues = await fetchRealGlobalCues();
+        if (active) setGlobalCues(cues);
+      } catch {
+        // keep last known values
+      }
+    };
+    load();
+    const interval = setInterval(load, 60000);
+    return () => { active = false; clearInterval(interval); };
   }, []);
 
   const veryHighMomentum = useMemo(() => momentumStocks.filter(s => s.momentumRank === 'VERY_HIGH'), [momentumStocks]);
@@ -547,30 +543,46 @@ export default function HighMomentumScanner() {
       </div>
 
       {/* Global Cues Banner */}
-      {marketStatus.isPreMarket && (
-        <div className="rounded-xl border border-yellow-500/20 bg-yellow-500/5 p-3">
-          <div className="text-[8px] font-bold text-yellow-400 uppercase tracking-wider mb-2">
-            📡 Pre-Market Indicators
+      {(marketStatus.isPreMarket || marketStatus.isLive) && (
+        <div className={`rounded-xl border p-3 ${globalCues.isLive ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-yellow-500/20 bg-yellow-500/5'}`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[8px] font-bold text-yellow-400 uppercase tracking-wider">📡 Pre-Market Indicators</span>
+            <span className={`text-[7px] font-mono ${globalCues.isLive ? 'text-emerald-500' : 'text-yellow-500'}`}>
+              {globalCues.isLive ? 'LIVE DATA' : 'ESTIMATED'}
+            </span>
           </div>
-          <div className="grid grid-cols-3 gap-3 text-[10px] font-mono">
+          <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">US Close</div>
               <div className={`font-bold ${globalCues.usClose >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.usClose >= 0 ? '+' : ''}{globalCues.usClose.toFixed(1)}%
+                {globalCues.usClose >= 0 ? '+' : ''}{globalCues.usClose.toFixed(2)}%
               </div>
+              <div className="text-[6px] text-slate-600">{globalCues.usMarketStatus}</div>
             </div>
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">Asian Markets</div>
               <div className={`font-bold ${globalCues.asianMarkets >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.asianMarkets >= 0 ? '+' : ''}{globalCues.asianMarkets.toFixed(1)}%
+                {globalCues.asianMarkets >= 0 ? '+' : ''}{globalCues.asianMarkets.toFixed(2)}%
               </div>
+              <div className="text-[6px] text-slate-600">{globalCues.asianMarketStatus}</div>
             </div>
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">GIFT Nifty</div>
               <div className={`font-bold ${globalCues.giftNifty >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.giftNifty >= 0 ? '+' : ''}{globalCues.giftNifty.toFixed(1)}%
+                {globalCues.giftNifty >= 0 ? '+' : ''}{globalCues.giftNifty.toFixed(2)}%
               </div>
+              <div className="text-[6px] text-slate-600">SGX Nifty</div>
             </div>
+            <div className="bg-slate-950/50 rounded-lg p-2 text-center">
+              <div className="text-slate-500 text-[8px]">VIX</div>
+              <div className="font-bold text-purple-400">{globalCues.vix.toFixed(1)}</div>
+              <div className="text-[6px] text-slate-600">Fear Index</div>
+            </div>
+          </div>
+          <div className="mt-1.5 text-[6px] text-slate-600 text-center">
+            {globalCues.timestamp > 0
+              ? `Last updated: ${new Date(globalCues.timestamp).toLocaleTimeString()}`
+              : 'Data pending — showing momentum patterns without macro confirmation'}
           </div>
         </div>
       )}
@@ -795,7 +807,7 @@ function MomentumCard({
             </div>
           </div>
 
-          {/* Prediction */}
+          {/* Prediction with Verification Info */}
           <div className="bg-slate-950/40 rounded-lg p-2 border-l-2 border-emerald-500/40">
             <div className="flex items-center gap-2 mb-1">
               <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded ${
@@ -807,9 +819,19 @@ function MomentumCard({
               </span>
               <span className="text-[8px] text-slate-500">Confidence: </span>
               <span className="text-[8px] font-bold text-white">{stock.prediction.confidence}%</span>
+              <span className={`text-[6px] font-mono px-1 py-0.5 rounded ${
+                stock.ta ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-400'
+              }`}>
+                {stock.ta ? 'TA-BASED' : 'PRICE-ONLY'}
+              </span>
             </div>
-            <div className="text-[8px] text-slate-400">
-              Expected move: <span className="text-emerald-400">+{stock.prediction.expectedMove.toFixed(2)}%</span>
+            <div className="grid grid-cols-2 gap-1 text-[8px] text-slate-400 mb-1">
+              <span>Exp: <span className={`${stock.prediction.expectedMove >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {stock.prediction.expectedMove >= 0 ? '+' : ''}{stock.prediction.expectedMove.toFixed(2)}%
+              </span></span>
+              <span>Vol: <span className={stock.volatilityRisk > 50 ? 'text-red-400' : 'text-slate-300'}>
+                {stock.volumeRatio.toFixed(1)}x
+              </span></span>
             </div>
             <div className="mt-1.5 space-y-0.5">
               {stock.prediction.reasoning.slice(0, 2).map((r, i) => (
@@ -819,6 +841,13 @@ function MomentumCard({
                 </div>
               ))}
             </div>
+            {stock.ta && (
+              <div className="mt-1 flex gap-1 text-[6px] text-slate-600">
+                <span>RSI({stock.ta.rsi.toFixed(0)})</span>
+                <span>ADX({stock.ta.adx.toFixed(0)})</span>
+                <span>ATR({stock.ta.atr.toFixed(1)})</span>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -64,8 +64,8 @@ export async function sendTelegramAlert(item: ClassifiedNewsItem): Promise<void>
   notifiedItems.add(hash);
   
   if (notifiedItems.size > 500) {
-    const first = notifiedItems.keys().next().value;
-    if (first) notifiedItems.delete(first);
+    const first = notifiedItems.values().next().value;
+    if (first != null) notifiedItems.delete(first as string);
   }
 
   // --- BROKER EXECUTION TRIGGER ---
@@ -113,6 +113,9 @@ ${emoji} <b>${item.llmTradingSignal} SIGNAL DETECTED</b>
 }
 
 export async function sendStockPulseGemAlert(gem: MultibaggerPick): Promise<void> {
+  // DEPRECATED in V5: All Telegram alerts are now sent centrally by the Python V5 Engine.
+  return;
+  
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   
   const hash = `GEM|${gem.ticker}|${gem.tier}`;
@@ -120,8 +123,8 @@ export async function sendStockPulseGemAlert(gem: MultibaggerPick): Promise<void
   notifiedItems.add(hash);
   
   if (notifiedItems.size > 500) {
-    const first = notifiedItems.keys().next().value;
-    if (first) notifiedItems.delete(first);
+    const first = notifiedItems.values().next().value;
+    if (first != null) notifiedItems.delete(first as string);
   }
 
   const timeStr = new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', hour12: true });
@@ -154,6 +157,9 @@ ${gem.reasons.map(r => `• ${escapeHtml(r)}`).join('\n')}
 }
 
 export async function sendTelegramMessage(text: string): Promise<{ message_id: number; chat_id: number | string } | null> {
+  // DEPRECATED in V5: Python backend handles all Telegram messages
+  return null;
+  
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return null;
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;

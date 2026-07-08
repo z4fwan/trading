@@ -193,7 +193,7 @@ export function addPredictions(
   return records;
 }
 
-export function resolvePending(stockPrices: Record<string, { price: number }>): StoredPrediction[] {
+export function resolvePending(stockPrices: Record<string, { price: number; high?: number; low?: number }>): StoredPrediction[] {
   const predictions = load();
   const now = new Date();
   let changed = false;
@@ -213,10 +213,24 @@ export function resolvePending(stockPrices: Record<string, { price: number }>): 
     const deviation = Math.abs(pctChange - expectedPct);
 
     let result: ResolutionResult;
-    if (directionalCorrect && deviation < 1.0) result = 'CORRECT';
-    else if (directionalCorrect && deviation < 2.5) result = 'PARTIAL';
-    else if (!directionalCorrect) result = 'WRONG';
-    else result = deviation < 2.5 ? 'PARTIAL' : 'WRONG';
+    if (p.predictionType === 'HOURLY') {
+      if (directionalCorrect && deviation < 0.5) result = 'CORRECT';
+      else if (directionalCorrect && deviation < 1.5) result = 'PARTIAL';
+      else result = 'WRONG';
+    } else if (p.predictionType === 'DAILY') {
+      if (directionalCorrect && deviation < 1.0) result = 'CORRECT';
+      else if (directionalCorrect && deviation < 3.0) result = 'PARTIAL';
+      else result = 'WRONG';
+    } else if (p.predictionType === 'WEEKLY') {
+      if (directionalCorrect && deviation < 2.0) result = 'CORRECT';
+      else if (directionalCorrect && deviation < 5.0) result = 'PARTIAL';
+      else result = 'WRONG';
+    } else {
+      if (directionalCorrect && deviation < 1.0) result = 'CORRECT';
+      else if (directionalCorrect && deviation < 2.5) result = 'PARTIAL';
+      else if (!directionalCorrect) result = 'WRONG';
+      else result = deviation < 2.5 ? 'PARTIAL' : 'WRONG';
+    }
 
     const accuracyPct = Math.max(0, 100 - deviation * 10);
 

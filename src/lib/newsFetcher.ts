@@ -181,7 +181,7 @@ function classifyAndFormat(rawItems: { headline: string; source: string; tickers
       relevanceScore, // Add relevance score for transparency
     };
   });
-  return classifiedNews.filter(item => item !== null && item.headline.length > 10);
+  return classifiedNews.filter((item): item is NonNullable<typeof item> => item !== null && item.headline.length > 10);
 }
 
 const RSS_FEEDS: { url: string; source: string; skip: string[] }[] = [

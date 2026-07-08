@@ -188,28 +188,26 @@ class DecisionGovernanceLayer:
             )
     
     def _check_expected_value(self, prediction: Dict, context: Dict) -> GovernanceCheck:
-        """Check if expected value is positive after costs"""
-        expected_value = prediction.get('expected_return', 0)
-        trading_costs = context.get('trading_costs', 0.004)  # 0.4% round trip
+        """Check if expected value is positive after costs (calculated by Risk Engine)"""
+        # Risk engine now calculates EV including slippage and targets
+        ev = prediction.get('expected_value', 0)
         
-        net_ev = expected_value - (trading_costs * 2)  # Both sides
-        
-        if net_ev > self.MIN_EXPECTED_VALUE:
+        if ev > self.MIN_EXPECTED_VALUE:
             return GovernanceCheck(
                 name="Expected Value",
                 status=CheckStatus.PASSED,
-                value=round(net_ev, 4),
+                value=round(ev, 4),
                 threshold=self.MIN_EXPECTED_VALUE,
-                message=f"Net EV: {net_ev:.4f} after {trading_costs*2:.4f} costs",
+                message=f"Net EV: {ev:.4f} is positive after costs",
                 critical=True
             )
         else:
             return GovernanceCheck(
                 name="Expected Value",
                 status=CheckStatus.FAILED,
-                value=round(net_ev, 4),
+                value=round(ev, 4),
                 threshold=self.MIN_EXPECTED_VALUE,
-                message=f"Net EV: {net_ev:.4f} is below minimum {self.MIN_EXPECTED_VALUE:.4f}",
+                message=f"Net EV: {ev:.4f} is below minimum {self.MIN_EXPECTED_VALUE:.4f}",
                 critical=True
             )
     

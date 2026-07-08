@@ -6,10 +6,10 @@
  * This significantly reduces false positives and improves accuracy.
  */
 
-import { callLLM } from './llmProvider';
+import { callLLM, type LLMProviderName } from './llmProvider';
 
 export interface LLMVote {
-  provider: string;
+  provider: LLMProviderName;
   sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
   sentimentScore: number;
   eventType: string;
@@ -31,13 +31,13 @@ export interface ConsensusResult {
 /**
  * Available LLM providers for voting
  */
-const LLM_PROVIDERS = ['groq', 'gemini', 'deepseek'];
+const LLM_PROVIDERS: LLMProviderName[] = ['groq', 'gemini', 'deepseek'];
 
 /**
  * Get sentiment analysis from a specific LLM provider
  */
 async function getLLMVote(
-  provider: string,
+  provider: LLMProviderName,
   headline: string,
   source: string
 ): Promise<LLMVote | null> {
@@ -156,7 +156,7 @@ export async function getQuickConsensus(
   source: string
 ): Promise<ConsensusResult> {
   // Use only the 2 fastest providers for quick decisions
-  const quickProviders = ['groq', 'gemini'];
+  const quickProviders: LLMProviderName[] = ['groq', 'gemini'];
   
   const votePromises = quickProviders.map(provider => getLLMVote(provider, headline, source));
   const votes = (await Promise.all(votePromises)).filter((v): v is LLMVote => v !== null);

@@ -2,6 +2,8 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import SignalCard from './SignalCard';
 import SignalDrawer from './SignalDrawer';
+import { verifySource, classifyEventType, type VerificationResult } from '@/lib/sourceVerificationEngine';
+import { getCachedAnnouncements, cacheAnnouncement, cacheAnnouncementBatch } from '@/lib/announcementCache';
 
 interface Announcement {
   id: string;
@@ -52,8 +54,28 @@ interface Announcement {
     volume_surge_ratio?: string;
   };
   
+  v5_intelligence?: {
+    event_category: string;
+    importance: number;
+    accumulation_prob: number;
+    historical_win_rate: number;
+    forecasts: {
+      prob_1day: number;
+      prob_1week: number;
+      expected_return: number;
+    };
+    decision_trace: {
+      decision_id: string;
+      model_version: string;
+      prediction: string;
+      confidence_tier: string;
+      reasoning: string;
+    };
+  };
+  
   received_at: string;
   flash?: boolean;
+  verification?: VerificationResult;
 }
 
 interface AnnouncementsFeedProps {
@@ -67,7 +89,10 @@ export default function AnnouncementsFeed({
   showPEBadges = true,
 }: AnnouncementsFeedProps) {
   const restUrl = '/api/news';
-  const [items, setItems] = useState<Announcement[]>([]);
+  const [items, setItems] = useState<Announcement[]>(() => {
+    const cached = getCachedAnnouncements();
+    return cached.length > 0 ? cached.slice(0, maxItems) : [];
+  });
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateFilter, setDateFilter] = useState<'today' | 'yesterday' | 'all'>('all');
@@ -114,123 +139,127 @@ export default function AnnouncementsFeed({
     }
   };
 
-  // Disable WebSocket to use native Next.js REST API
-  useEffect(() => {
-    setConnected(true);
-    setError(null);
-  }, []);
-
-  const fetchRestFallback = useCallback(async () => {
-    try {
-      const res = await fetch(restUrl);
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data && data.news) {
-        
-        // Update Pipeline Stats
-        const fetched = data.count || 0;
-        const llmAnalyzed = data.llmEnhancedCount || 0;
-        const passedFilters = data.news?.filter((n:any) => n.llmImpactLevel?.includes('HIGH') || n.llmTradingSignal !== 'IGNORE').length || 0;
-        const telegramSent = data.news?.filter((n:any) => n.llmTradingSignal === 'BUY' || n.llmTradingSignal === 'SELL').length || 0;
-
-        setPipelineStats({
-          fetched: fetched,
-          passedFilters: passedFilters,
-          highImpact: llmAnalyzed,
-          telegramSent: telegramSent
-        });
-
-        // RUTHLESS FILTER: Show ALL verified high-impact announcements (Corporate or Macro)
-        const isImpactful = (item: any) => {
-          if (item.verificationScore !== undefined && item.verificationScore < 70) return false;
-          if (item.llmTradingSignal === 'IGNORE') return false;
-          return true; 
-        };
-
-        const mappedNews = data.news.filter(isImpactful).map((item: any) => ({
-          id: item.id,
-          symbol: item.tickers?.[0] || 'MACRO',
-          company_name: item.source || 'News',
-          headline: item.headline,
-          summary: item.summary,
-          sentiment: item.sentiment,
-          confidence: Math.round(item.impactScore),
-          ensemble_signal: item.llmImpactLevel?.toLowerCase().includes('high') ? 'BUY' : 'NEUTRAL',
-          full_text: item.summary || '',
-          category: 'General',
-          announcement_time: new Date(item.timestamp).toISOString(),
-          capture_latency_seconds: 0,
-          attachment_url: item.url || '',
-          exchange: 'NSE',
-          ai_analysis: {
-            finbert_sentiment: item.sentiment || 'neutral',
-            finbert_confidence: item.impactScore || 0,
-            llm_sentiment: item.sentiment || 'neutral',
-            llm_confidence: item.impactScore || 0,
-            llm_reasoning: item.llmReasoning || item.summary || '',
-            ensemble_signal: item.llmImpactLevel?.toLowerCase().includes('high') ? 'BUY' : 'NEUTRAL',
-            ensemble_confidence: item.impactScore || 0,
-            event_type: item.llmEventType || 'GENERAL',
-            trading_signal: item.llmTradingSignal || 'IGNORE',
-            expected_movement_pct: item.llmExpectedMovementPct || 'N/A',
-          },
-          prediction: {
-            direction: 'neutral',
-            expected_range_pct: { min: 0, max: 0 },
-            time_horizon: '1d',
-            momentum_score: 0,
-            risk_score: 0
-          },
-          similar_historical: {
-            count: 0,
-            avg_1d_change: 0,
-            avg_5d_change: 0,
-            accuracy_rate: 0
-          },
-          context: {
-            pe_ratio: null,
-            pe_bracket: 'neutral',
-            sector: 'unknown'
-          },
-          verificationScore: item.verificationScore,
-          verificationSources: item.verificationSources,
-          received_at: new Date(item.timestamp).toISOString()
-        }));
-        
-        setItems(prev => {
-          const newItems = mappedNews.filter((item: Announcement) => !prev.some(p => p.id === item.id || p.headline === item.headline));
-          if (newItems.length === 0) return prev;
-          
-          const withFlash = newItems.map((item: Announcement) => ({ ...item, flash: true }));
-          const updated = [...withFlash, ...prev].slice(0, maxItems);
-          
-          setTimeout(() => {
-            setItems(current =>
-              current.map(item =>
-                newItems.some((n: Announcement) => n.id === item.id) ? { ...item, flash: false } : item
-              )
-            );
-          }, 2000);
-          
-          return updated;
-        });
-        setConnected(true);
-      }
-    } catch (e) {
-      setError('Live feed offline - Reconnecting...');
-      setConnected(false);
+  function classifyAndMapEventType(item: Announcement): string {
+    const existing = item.ai_analysis?.event_type;
+    if (['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(existing || '')) {
+      return existing!;
     }
-  }, [restUrl, maxItems]);
+    const specificType = classifyEventType(item.headline, item.full_text || '');
+    if (specificType === 'ORDER_WIN' || specificType === 'CONTRACT_WIN') return 'ORDER_WIN';
+    const corporateEvents = [
+      'ACQUISITION', 'MERGER', 'BONUS', 'SPLIT', 'DIVIDEND', 'BUYBACK',
+      'EARNINGS_BEAT', 'EARNINGS_MISS', 'REVENUE_GROWTH', 'PROFIT_SURGE', 'LOSS_WIDEN',
+      'FDA_APPROVAL', 'REGULATORY_CLEARANCE', 'SEBI_ACTION', 'TAX_NOTICE', 'COURT_ORDER',
+      'MANAGEMENT_CHANGE', 'RESIGNATION', 'APPOINTMENT',
+      'BLOCK_DEAL', 'BULK_DEAL', 'PROMOTER_BUYING', 'PROMOTER_SELLING', 'PLEDGE_CHANGE',
+      'NEW_PRODUCT', 'EXPANSION', 'JV_ANNOUNCEMENT'
+    ];
+    if (corporateEvents.includes(specificType)) return 'CORPORATE_ACTION';
+    const turnaroundEvents = ['DEBT_REDUCTION', 'FUND_RAISING', 'CREDIT_UPGRADE', 'CREDIT_DOWNGRADE'];
+    if (turnaroundEvents.includes(specificType)) return 'TURNAROUND';
+    return existing || specificType;
+  }
 
+  // Use WebSocket to connect directly to the Python V5 Engine
   useEffect(() => {
-    setConnected(false);
-    setError('Connected to Next.js native Engine (Live)');
-  }, []); 
+    connectRef.current = () => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      
+      const socket = new WebSocket('ws://localhost:8000/ws/announcements');
+      wsRef.current = socket;
 
-  useEffect(() => {
-    const interval = setInterval(fetchRestFallback, 5000);
-    return () => clearInterval(interval);
-  }, [fetchRestFallback]);
+      socket.onopen = () => {
+        setConnected(true);
+        setError(null);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          // If it's a history payload (list of items)
+          if (Array.isArray(data)) {
+            const verified = data.map((item: any) => {
+              const announcement = item as Announcement;
+              const mappedType = classifyAndMapEventType(announcement);
+              return {
+                ...item,
+                ai_analysis: {
+                  ...(item.ai_analysis || {}),
+                  event_type: mappedType
+                },
+                verification: verifySource(
+                  item.headline || '',
+                  item.source || mappedType || 'UNKNOWN',
+                  item.received_at ? new Date(item.received_at).getTime() : Date.now(),
+                  'INDIAN'
+                ),
+              };
+            });
+            cacheAnnouncementBatch(verified);
+            setItems(verified);
+          } else if (data.symbol) {
+            // Single announcement with verification
+            const mappedType = classifyAndMapEventType(data as Announcement);
+            const verification = verifySource(
+              data.headline || '',
+              data.source || mappedType || 'UNKNOWN',
+              data.received_at ? new Date(data.received_at).getTime() : Date.now(),
+              'INDIAN'
+            );
+            setItems(prev => {
+              if (prev.some(p => p.id === data.id)) return prev;
+              const newItem = {
+                ...data,
+                flash: true,
+                verification,
+                ai_analysis: {
+                  ...(data.ai_analysis || {}),
+                  event_type: mappedType
+                }
+              };
+              cacheAnnouncement(newItem);
+              
+              setTimeout(() => {
+                setItems(current =>
+                  current.map(item =>
+                    item.id === newItem.id ? { ...item, flash: false } : item
+                  )
+                );
+              }, 2000);
+              
+              return [newItem, ...prev].slice(0, maxItems);
+            });
+            
+            setPipelineStats(prev => ({
+              ...prev,
+              fetched: prev.fetched + 1,
+              passedFilters: prev.passedFilters + 1
+            }));
+          }
+        } catch (e) {
+          console.error("WebSocket parsing error:", e);
+        }
+      };
+
+      socket.onclose = () => {
+        setConnected(false);
+        setError('Connection to V5 Engine lost. Reconnecting...');
+        reconnectTimeoutRef.current = setTimeout(connectRef.current, 5000);
+      };
+
+      socket.onerror = (err) => {
+        setConnected(false);
+        setError('V5 Engine Connection Error');
+      };
+    };
+
+    connectRef.current();
+
+    return () => {
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [maxItems]);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -324,7 +353,21 @@ export default function AnnouncementsFeed({
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for active growth catalysts...</div>
                 ) : (
                   filteredItems.filter(i => i.ai_analysis.event_type === 'ORDER_WIN').map((item) => (
-                    <SignalCard key={item.id} item={item} onClick={setSelectedSignal} />
+                    <div key={item.id} className="relative">
+                      {item.verification && (
+                        <div className={`absolute -top-1 -right-1 z-10 px-1.5 py-0.5 rounded-full text-[6px] font-bold font-mono border ${
+                          item.verification.status === 'VERIFIED'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : item.verification.status === 'UNVERIFIED'
+                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}>
+                          {item.verification.status === 'VERIFIED' ? '✓ VERIFIED' :
+                           item.verification.status === 'UNVERIFIED' ? '? UNVERIFIED' : '✗ REJECTED'}
+                        </div>
+                      )}
+                      <SignalCard item={item} onClick={setSelectedSignal} />
+                    </div>
                   ))
                 )}
               </div>
@@ -339,7 +382,21 @@ export default function AnnouncementsFeed({
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for institutional actions...</div>
                 ) : (
                   filteredItems.filter(i => i.ai_analysis.event_type === 'CORPORATE_ACTION').map((item) => (
-                    <SignalCard key={item.id} item={item} onClick={setSelectedSignal} />
+                    <div key={item.id} className="relative">
+                      {item.verification && (
+                        <div className={`absolute -top-1 -right-1 z-10 px-1.5 py-0.5 rounded-full text-[6px] font-bold font-mono border ${
+                          item.verification.status === 'VERIFIED'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : item.verification.status === 'UNVERIFIED'
+                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}>
+                          {item.verification.status === 'VERIFIED' ? '✓ VERIFIED' :
+                           item.verification.status === 'UNVERIFIED' ? '? UNVERIFIED' : '✗ REJECTED'}
+                        </div>
+                      )}
+                      <SignalCard item={item} onClick={setSelectedSignal} />
+                    </div>
                   ))
                 )}
               </div>
@@ -354,7 +411,21 @@ export default function AnnouncementsFeed({
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for turnaround catalysts...</div>
                 ) : (
                   filteredItems.filter(i => i.ai_analysis.event_type === 'TURNAROUND').map((item) => (
-                    <SignalCard key={item.id} item={item} onClick={setSelectedSignal} />
+                    <div key={item.id} className="relative">
+                      {item.verification && (
+                        <div className={`absolute -top-1 -right-1 z-10 px-1.5 py-0.5 rounded-full text-[6px] font-bold font-mono border ${
+                          item.verification.status === 'VERIFIED'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : item.verification.status === 'UNVERIFIED'
+                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}>
+                          {item.verification.status === 'VERIFIED' ? '✓ VERIFIED' :
+                           item.verification.status === 'UNVERIFIED' ? '? UNVERIFIED' : '✗ REJECTED'}
+                        </div>
+                      )}
+                      <SignalCard item={item} onClick={setSelectedSignal} />
+                    </div>
                   ))
                 )}
               </div>
@@ -369,7 +440,21 @@ export default function AnnouncementsFeed({
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for macro events...</div>
                 ) : (
                   filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis?.event_type || '')).map((item) => (
-                    <SignalCard key={item.id} item={item} onClick={setSelectedSignal} />
+                    <div key={item.id} className="relative">
+                      {item.verification && (
+                        <div className={`absolute -top-1 -right-1 z-10 px-1.5 py-0.5 rounded-full text-[6px] font-bold font-mono border ${
+                          item.verification.status === 'VERIFIED'
+                            ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                            : item.verification.status === 'UNVERIFIED'
+                            ? 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30'
+                            : 'bg-red-500/20 text-red-400 border-red-500/30'
+                        }`}>
+                          {item.verification.status === 'VERIFIED' ? '✓ VERIFIED' :
+                           item.verification.status === 'UNVERIFIED' ? '? UNVERIFIED' : '✗ REJECTED'}
+                        </div>
+                      )}
+                      <SignalCard item={item} onClick={setSelectedSignal} />
+                    </div>
                   ))
                 )}
               </div>

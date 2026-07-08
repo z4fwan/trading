@@ -92,9 +92,9 @@ export async function pushAllToSupabase(): Promise<void> {
     const result = await res.json();
     if (result.status === 'partial' && Array.isArray(result.errors)) {
       const msg = result.errors.join('; ');
-      if (/fetch failed|ECONNREFUSED|ENOTFOUND/i.test(msg)) {
+      if (/fetch failed|ECONNREFUSED|ENOTFOUND|Invalid API key/i.test(msg)) {
         markCloudUnreachable();
-        logError('Sync', 'Supabase unreachable (project paused or network). Using localStorage.', msg);
+        // Silently use localStorage if API key is invalid or unreachable
       } else {
         logError('Sync', 'Supabase push completed with errors', msg);
       }

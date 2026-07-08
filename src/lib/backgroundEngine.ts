@@ -18,6 +18,7 @@ import { runStockPulseLearningCycle } from './serverStockPulseLearning';
 import { runAutoListingScanner } from './autoListingScanner';
 import { checkScheduledReports } from './annualReport/schedule';
 import { runAutoReviewCycle } from './autoReviewQueue';
+import { getPythonMLPrediction, type PythonEventData } from './pythonBridge';
 
 const ENGINE_VERSION = '2.0.0-render';
 
@@ -329,25 +330,63 @@ async function runMLCycle(): Promise<void> {
         if (newsItem.sentiment === 'BULLISH') sentimentBoost = newsItem.impactScore;
         else if (newsItem.sentiment === 'BEARISH') sentimentBoost = -newsItem.impactScore;
       }
-      const prediction = predictWithModel(model, history, sentimentBoost);
-      if (!prediction) continue;
+
+      // === V4 Institutional Upgrade: Single Python ML Pipeline ===
+      // Typescript acts purely as Data Collector & Orchestrator
+      const rawPrices = history.map(h => h.close);
+      const rawVolumes = history.map(h => h.volume);
+      const eventPayload = newsItem ? {
+        headline: newsItem.headline,
+        llm_sentiment: newsItem.sentiment,
+        llm_confidence: newsItem.impactScore || 50
+      } : {};
+
+      const eventData: PythonEventData = {
+          symbol: ticker,
+          prices: rawPrices,
+          volumes: rawVolumes,
+          event: eventPayload
+      };
+      
+      let pyPrediction;
+      try {
+        pyPrediction = await getPythonMLPrediction(eventData);
+      } catch (e) {
+        // V4 Strict Requirement: Do NOT silently fallback to legacy TS ML. 
+        // If Python is down or throws validation error, skip this ticker.
+        markError(`python-ml-bridge: ${e}`);
+        continue;
+      }
+      
+      if (!pyPrediction) continue;
       preds++;
+
       if (supabase) {
         try {
           const lastPrice = history[history.length - 1].close;
-          const id = `${ticker}_${model.trainedAt}`;
-          const targetPct = prediction.direction === 'BULLISH' ? 1.02 : prediction.direction === 'BEARISH' ? 0.98 : 1;
-          const stopPct = prediction.direction === 'BULLISH' ? 0.99 : prediction.direction === 'BEARISH' ? 1.01 : 1;
+          const id = pyPrediction.prediction_id;
+          
+          // V4 Dynamic Risk Engine replaces hardcoded percentages
+          const dynamicRisk = (pyPrediction as any).risk_metrics || {
+             stop_loss: lastPrice * (pyPrediction.probability > 50 ? 0.99 : 1.01),
+             target_price: lastPrice * (pyPrediction.probability > 50 ? 1.02 : 0.98),
+             position_size: 0.1,
+             expected_value: 0
+          };
+          
+          const direction = pyPrediction.probability > 50 ? 'BULLISH' : 'BEARISH';
+          const confidence = Math.abs(pyPrediction.probability - 50) * 2; // Normalize 0-100
+
           const row = {
-            id, ticker, name: getTickerName(ticker), source: 'AI_QUANT',
-            created_at: model.trainedAt, prediction_type: 'DAILY',
-            direction: prediction.direction,
-            bullish_prob: prediction.direction === 'BULLISH' ? prediction.probability : 100 - prediction.probability,
-            bearish_prob: prediction.direction === 'BEARISH' ? prediction.probability : 100 - prediction.probability,
-            confidence: prediction.confidence,
+            id, ticker, name: getTickerName(ticker), source: 'AI_QUANT_V4',
+            created_at: Date.now(), prediction_type: 'DAILY',
+            direction: direction,
+            bullish_prob: pyPrediction.probability,
+            bearish_prob: 100 - pyPrediction.probability,
+            confidence: confidence,
             entry_price: lastPrice,
-            target_price: lastPrice * targetPct,
-            stop_loss: lastPrice * stopPct,
+            target_price: dynamicRisk.target_price,
+            stop_loss: dynamicRisk.stop_loss,
             resolved: false,
             regime: 'UNKNOWN',
           };
@@ -360,7 +399,7 @@ async function runMLCycle(): Promise<void> {
           const histPromise = (supabase as any).from('prediction_history').upsert({
             ...row,
             trust_score: 50,
-            uncertainty_score: Math.max(0, 100 - prediction.confidence),
+            uncertainty_score: Math.max(0, 100 - confidence),
             expected_volatility: 1,
             reasoning: [],
           }, { onConflict: 'id' });

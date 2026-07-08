@@ -105,7 +105,7 @@ export class AdvancedTechnicalEngine {
     
     // === SUPPORT/RESISTANCE ===
     const supportResistance = this.calculateSupportResistance(closes, highs, lows);
-    const pivotPoints = this.calculatePivotPoints(data[data.length - 1]);
+    const pivotPoints = this.calculatePivotPoints(data);
     
     // === GAP ANALYSIS ===
     const gapAnalysis = this.calculateGapAnalysis(data);
@@ -418,7 +418,7 @@ export class AdvancedTechnicalEngine {
     };
   }
   
-  private calculatePivotPoints(data: OHLCV): { pivot: number; r1: number; r2: number; r3: number; s1: number; s2: number; s3: number } {
+  private calculatePivotPoints(data: OHLCV[]): { pivot: number; r1: number; r2: number; r3: number; s1: number; s2: number; s3: number } {
     const H = data[data.length - 2].high;
     const L = data[data.length - 2].low;
     const C = data[data.length - 2].close;

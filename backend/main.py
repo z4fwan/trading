@@ -12,16 +12,114 @@ import asyncio
 import json
 from datetime import datetime, timedelta
 import os
+import numpy as np
+from dotenv import load_dotenv
 import yfinance as yf
 import httpx
+
+# Load environment variables from frontend .env.local
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local'))
 
 from poller import AnnouncementPoller
 from sentiment_analyzer import get_sentiment_analyzer
 from llm_analyzer import get_llm_analyzer, analyze_with_llm
 from historical_engine import get_historical_engine
 from reconciliation import get_reconciliation_engine, generate_accuracy_report
+from ml_ensemble import ModelArena
+from model_registry import ModelRegistry
+from pydantic import BaseModel
+from feature_engineering import feature_engine
+from risk_engine import risk_engine
+from engines.event_intelligence import event_intelligence_engine
+from engines.capital_flow import capital_flow_engine
+from engines.historical_similarity import similarity_engine
+from engines.pre_momentum import pre_momentum_engine
+import uuid
 
 app = FastAPI(title="NSE/BSE Announcements API", version="2.0.0")
+
+registry = ModelRegistry("data/stage_b_registry.db")
+ml_arena = ModelArena(registry)
+
+
+class PredictionRequest(BaseModel):
+    raw_data: Dict  # Schema: {symbol, prices, volumes, event}
+
+@app.post("/predict")
+async def predict_probability(req: PredictionRequest):
+    request_id = str(uuid.uuid4())
+    try:
+        # 1. Feature Engineering
+        features = feature_engine.generate_features(req.raw_data)
+        
+        # 2. ML Inference (fetch Champion)
+        champion = registry.get_champion()
+        if not champion:
+            raise RuntimeError("ModelNotTrainedError: No Champion model found in the registry.")
+            
+        prob = ml_arena.predict_probability(champion['model_version'], np.array([features]))
+        
+        # 3. V5 Pre-Momentum & Decision Trace Integration
+        prices = req.raw_data.get('prices', [])
+        volumes = req.raw_data.get('volumes', [])
+        event_dict = req.raw_data.get('event', {})
+        headline = event_dict.get('headline', '')
+        
+        # Parse Event
+        structured_event = event_intelligence_engine.parse_event(headline)
+        
+        # Capital Flow
+        cap_flow = capital_flow_engine.calculate_accumulation_probability(prices, volumes)
+        
+        # Historical Sim
+        sim_result = similarity_engine.find_similar_events(structured_event.category, structured_event.amount)
+        
+        # V5 Fusion
+        forecasts = pre_momentum_engine.generate_forecasts(
+            ml_prob=prob,
+            event_impact=structured_event.importance_score,
+            accum_prob=cap_flow['accumulation_probability'],
+            history_win_rate=sim_result.win_rate
+        )
+        
+        decision_trace = pre_momentum_engine.generate_decision_trace(
+            ticker=req.raw_data.get('symbol', 'UNKNOWN'),
+            features_used=["EventImpact", "CapitalFlow", "HistoricalWinRate", "MLProb"],
+            feature_values=[structured_event.importance_score, cap_flow['accumulation_probability'], sim_result.win_rate, prob],
+            prediction="PRE-MOMENTUM CANDIDATE" if forecasts['prob_1day'] > 0.6 else "IGNORE",
+            confidence="High" if structured_event.confidence > 0.8 else "Medium",
+            reasoning="Multi-engine V5 synthesis."
+        )
+        
+        # 4. Dynamic Risk Engine
+        risk_metrics = risk_engine.evaluate_risk(forecasts['prob_1day'], prices)
+        
+        return {
+            "prediction_id": str(uuid.uuid4()),
+            "request_id": request_id,
+            "model_version": champion['model_version'],
+            "dataset_version": champion['dataset_version'],
+            "feature_version": feature_engine.version,
+            "created_at": datetime.now().isoformat(),
+            "probability": forecasts['prob_1day'],  # Override with V5 probability
+            "explanation": decision_trace,
+            "features_used": features.tolist(),
+            "risk_metrics": risk_metrics,
+            "v5_metrics": {
+                "accumulation_probability": cap_flow['accumulation_probability'],
+                "historical_win_rate": sim_result.win_rate,
+                "event_category": structured_event.category
+            }
+        }
+    except Exception as e:
+        # Ensure errors are traceable and not silent
+        raise HTTPException(status_code=400, detail={
+            "error": str(e),
+            "request_id": request_id,
+            "timestamp": datetime.now().isoformat(),
+            "expected_model": "XGBoost Classifier (v4)",
+            "message": "Prediction failed. Ensure model weights are loaded and payload is valid."
+        })
 
 # CORS middleware
 app.add_middleware(
@@ -120,7 +218,9 @@ async def send_telegram_alert(
     risk_score: int = 50,
     volume_surge: float = 1.0,
     pe_ratio: float = None,
-    predicted_range: dict = None
+    predicted_range: dict = None,
+    current_price: str = "N/A",
+    decision_trace: dict = None
 ):
     """Send enhanced Telegram alert with full trading context.
     
@@ -196,31 +296,30 @@ async def send_telegram_alert(
         range_text = "N/A"
     
     # Sanitize text for HTML
-    safe_reason = html.escape(reason[:500] if reason else "AI analysis based on announcement content")
+    deep_reasoning = decision_trace.get("reasoning", reason) if decision_trace else reason
+    safe_reason = html.escape(deep_reasoning[:1000] if deep_reasoning else "AI analysis based on announcement content")
     safe_headline = html.escape(headline[:200] if headline else "No headline")
     safe_ticker = html.escape(ticker[:20])
     
     # Build message
     text = f"""{emoji} <b>{strength} {signal.upper()} SIGNAL</b> {emoji}
 
-📌 <b>{safe_ticker}</b>
-📰 <i>{safe_headline}</i>
+📌 <b>Ticker:</b> {safe_ticker}
+💰 <b>CMP:</b> {current_price}
+📰 <b>Headline:</b> <i>{safe_headline}</i>
 
-🎯 <b>Signal Details:</b>
-  • Confidence: <b>{conf_pct}%</b>
-  • Momentum: {momentum_label}
-  • Risk: {risk_label}
-  • Volume: {volume_label}
-  • PE: {pe_label}
+🎯 <b>V5 Intelligence Data:</b>
+  • Expected Return: <b>{range_text}</b>
+  • V5 Confidence: <b>{conf_pct}%</b>
+  • Accumulation Vol: {volume_label}
+  • Momentum Engine: {momentum_label}
 
-📊 <b>Expected Range:</b> {range_text}
+🧠 <b>Deep Learned Analysis:</b>
+{safe_reason}
 
-🧠 <b>Analysis:</b>
-<i>{safe_reason}</i>
+<i>Powered by V5 ML Core | Advanced Quant Pipeline</i>"""
 
-━━━━━━━━━━━━━━━━━━━━
-⏰ {datetime.now().strftime('%d %b %Y, %I:%M %p IST')}
-<i>Quantum Alpha AI | Institutional Grade</i>"""
+
 
     url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     
@@ -241,11 +340,7 @@ async def send_telegram_alert(
 
 async def perform_full_analysis(announcement: Dict) -> Dict:
     """
-    Perform full AI analysis pipeline on an announcement:
-    1. FinBERT-India sentiment
-    2. LLM deep analysis (if available)
-    3. Historical similarity matching
-    4. Ensemble signal generation
+    Perform full V5 AI analysis pipeline on an announcement.
     """
     symbol = announcement.get("symbol", "")
     headline = announcement.get("headline", "")
@@ -253,141 +348,102 @@ async def perform_full_analysis(announcement: Dict) -> Dict:
     category = announcement.get("category", "")
     exchange = announcement.get("exchange", "NSE")
     
-    # 1. FinBERT-India sentiment (fast, ~200ms)
+    # 1. FinBERT-India sentiment
     sentiment_analyzer = get_sentiment_analyzer()
     sentiment_result = sentiment_analyzer.analyze_sentiment(headline, full_text)
     
     announcement["finbert_sentiment"] = sentiment_result.get("label", "Neutral")
     announcement["finbert_confidence"] = sentiment_result.get("score", 0.5)
     
-    # 1.5 Fetch real-time market context
+    # Fetch real-time market context
     market_context = await get_market_context(symbol)
     announcement["market_context"] = market_context
+    prices = market_context.get("recent_prices", [])
+    volumes = market_context.get("recent_volumes", [])
     
-    # 2. LLM deep analysis (slower, 1-3s) - run async
-    try:
-        llm_result = await asyncio.wait_for(
-            analyze_with_llm(
-                symbol=symbol,
-                headline=headline,
-                full_text=full_text,
-                category=category,
-                pe_ratio=announcement.get("pe_ratio"),
-                sector=announcement.get("sector", ""),
-                current_price=market_context["current_price"],
-                day_change_pct=market_context["day_change_pct"],
-                volume_surge_ratio=market_context["volume_surge_ratio"]
-            ),
-            timeout=10.0  # Increased timeout for deep analysis and semaphore queue
-        )
-        
-        if llm_result:
-            announcement["llm_analysis"] = llm_result
-            announcement["llm_sentiment"] = llm_result.get("sentiment", "")
-            announcement["llm_confidence"] = llm_result.get("confidence", 0)
-    except asyncio.TimeoutError:
-        print(f"LLM analysis timed out for {symbol}")
-    except Exception as e:
-        print(f"LLM analysis error for {symbol}: {e}")
+    # V5: Event Intelligence Engine
+    structured_event = event_intelligence_engine.parse_event(headline, source_rel=0.95)
     
-    # 3. Historical similarity matching
-    try:
-        historical_engine = get_historical_engine()
-        similar = historical_engine.find_similar(headline, symbol=symbol, n_results=5)
-        
-        if similar:
-            # Calculate average outcomes from similar announcements
-            avg_1d_changes = [s.get("actual_1d_change", 0) for s in similar if s.get("actual_1d_change") is not None]
-            avg_5d_changes = [s.get("actual_5d_change", 0) for s in similar if s.get("actual_5d_change") is not None]
+    # V5: Capital Flow Engine
+    cap_flow = capital_flow_engine.calculate_accumulation_probability(prices, volumes)
+    
+    # V5: Historical Similarity
+    sim_result = similarity_engine.find_similar_events(structured_event.category, structured_event.amount)
+    
+    # V5: Pre-Momentum Engine
+    ml_prob = 0.5 # Default fallback
+    if len(prices) > 14:
+        try:
+            # Reconstruct raw data for ML
+            raw_data = {'symbol': symbol, 'prices': prices, 'volumes': volumes, 'event': {'headline': headline}}
+            features = feature_engine.generate_features(raw_data)
+            champion = registry.get_champion()
+            if champion:
+                ml_prob = ml_arena.predict_probability(champion['model_version'], np.array([features]))
+        except Exception as e:
+            print(f"ML Predict error: {e}")
             
-            announcement["similar_historical"] = {
-                "count": len(similar),
-                "avg_1d_change": round(sum(avg_1d_changes) / len(avg_1d_changes), 2) if avg_1d_changes else 0,
-                "avg_5d_change": round(sum(avg_5d_changes) / len(avg_5d_changes), 2) if avg_5d_changes else 0,
-                "similarity_scores": [s.get("similarity_score", 0) for s in similar[:3]],
-            }
-    except Exception as e:
-        print(f"Historical matching error for {symbol}: {e}")
+    forecasts = pre_momentum_engine.generate_forecasts(
+        ml_prob=ml_prob,
+        event_impact=structured_event.importance_score,
+        accum_prob=cap_flow['accumulation_probability'],
+        history_win_rate=sim_result.win_rate
+    )
     
-    # 4. Generate ensemble signal
-    ensemble_signal, ensemble_confidence, predicted_direction, predicted_range = generate_ensemble_signal(announcement)
+    decision_trace = pre_momentum_engine.generate_decision_trace(
+        ticker=symbol,
+        features_used=["EventImpact", "CapitalFlow", "HistoricalWinRate", "MLProb"],
+        feature_values=[structured_event.importance_score, cap_flow['accumulation_probability'], sim_result.win_rate, ml_prob],
+        prediction="PRE-MOMENTUM CANDIDATE" if forecasts['prob_1day'] > 0.6 else "IGNORE",
+        confidence="High" if structured_event.confidence > 0.8 else "Medium",
+        reasoning=f"Detected {structured_event.category} with {cap_flow['accumulation_probability']*100:.1f}% Accumulation Probability."
+    )
     
-    announcement["ensemble_signal"] = ensemble_signal
-    announcement["ensemble_confidence"] = ensemble_confidence
-    announcement["predicted_direction"] = predicted_direction
-    announcement["predicted_range"] = predicted_range
+    # Mutate announcement with V5 intelligence
+    announcement["v5_intelligence"] = {
+        "event_category": structured_event.category,
+        "importance": structured_event.importance_score,
+        "accumulation_prob": cap_flow['accumulation_probability'],
+        "historical_win_rate": sim_result.win_rate,
+        "forecasts": forecasts,
+        "decision_trace": decision_trace
+    }
     
-    # Calculate momentum score (needed for Telegram alert)
-    momentum_score = calculate_momentum_score(announcement)
-    announcement["momentum_score"] = momentum_score
+    # Ensure backward compatibility for React UI
+    announcement["ensemble_signal"] = "strong_buy" if forecasts['prob_1day'] > 0.7 else ("buy" if forecasts['prob_1day'] > 0.6 else "avoid")
+    announcement["ensemble_confidence"] = forecasts['prob_1day']
+    announcement["momentum_score"] = int(forecasts['prob_1day'] * 100)
+    announcement["risk_score"] = 50
     
-    # Calculate risk score
-    risk_score = calculate_risk_score(announcement)
-    announcement["risk_score"] = risk_score
-    
-    # Get market context for Telegram
-    market_ctx = announcement.get("market_context", {})
-    volume_surge = market_ctx.get("vol_surge_raw", 1.0)
+    volume_surge = cap_flow['relative_volume']
     pe_ratio = announcement.get("pe_ratio")
     
-    # Build comprehensive reasoning with LLM analysis and prediction
-    reasoning_parts = []
-    
-    # 1. Announcement Summary (What happened)
-    category = announcement.get("category", "General")
-    reasoning_parts.append(f"📋 {category}")
-    
-    # 2. FinBERT Sentiment
-    finbert_sent = announcement.get("finbert_sentiment", "")
-    finbert_conf = announcement.get("finbert_confidence", 0)
-    if finbert_sent:
-        reasoning_parts.append(f"🤖 FinBERT: {finbert_sent} ({finbert_conf:.0%})")
-    
-    # 3. LLM Deep Analysis (if available)
-    if announcement.get("llm_analysis") and isinstance(announcement.get("llm_analysis"), dict):
-        llm_data = announcement["llm_analysis"]
-        llm_sentiment = llm_data.get("sentiment", "")
-        llm_reasoning = llm_data.get("reasoning", "")
-        llm_direction = llm_data.get("predicted_price_direction", "")
-        llm_range = llm_data.get("predicted_magnitude_range", {})
-        
-        if llm_reasoning:
-            reasoning_parts.append(f"🧠 LLM: {llm_reasoning}")
-        if llm_direction and llm_range:
-            range_str = f"{llm_range.get('min', 0):.1f}% to {llm_range.get('max', 0):.1f}%"
-            reasoning_parts.append(f"🎯 LLM Predicts: {llm_direction.upper()} ({range_str})")
-    
-    # 4. Historical Pattern Match
-    if announcement.get("similar_historical", {}).get("count", 0) > 0:
-        hist_data = announcement["similar_historical"]
-        hist_count = hist_data.get("count", 0)
-        hist_avg = hist_data.get("avg_1d_change", 0)
-        reasoning_parts.append(f"📊 Historical: {hist_count} similar announcements → avg {hist_avg:+.1f}% next day")
-    
-    # 5. Volume Surge Alert
-    if volume_surge > 2.0:
-        reasoning_parts.append(f"🚨 Volume Surge: {volume_surge:.1f}x normal - institutions active!")
-    
-    reasoning = "\n  • ".join(reasoning_parts) if reasoning_parts else "AI analysis based on announcement content"
-    
-    # Send Telegram alert for ALL signals - NO LIMITS
-    # Every valuable announcement triggers instant alert for intraday trading
-    if ensemble_signal in ["strong_buy", "buy", "sell", "avoid"]:
+    # Send Telegram alert for ALL significant events
+    if structured_event.category != "Unknown" or volume_surge > 2.0:
         try:
             bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
             chat_id = os.getenv("TELEGRAM_CHAT_ID")
+            
+            reasoning = f"🚨 V5 INTELLIGENCE DETECTED 🚨\n"
+            reasoning += f"Event: {structured_event.category}\n"
+            reasoning += f"Accumulation Prob: {cap_flow['accumulation_probability']*100:.1f}%\n"
+            reasoning += f"Historical Win Rate: {sim_result.win_rate*100:.1f}%\n"
+            reasoning += f"1-Day Momentum Prob: {forecasts['prob_1day']*100:.1f}%"
+            
             if bot_token and chat_id:
                 asyncio.create_task(send_telegram_alert(
                     ticker=symbol,
                     headline=headline,
-                    signal=ensemble_signal,
-                    confidence=ensemble_confidence,
+                    signal=announcement["ensemble_signal"],
+                    confidence=forecasts['prob_1day'],
                     reason=reasoning,
-                    momentum_score=momentum_score,
-                    risk_score=risk_score,
+                    momentum_score=announcement["momentum_score"],
+                    risk_score=50,
                     volume_surge=volume_surge,
                     pe_ratio=pe_ratio,
-                    predicted_range=predicted_range
+                    predicted_range={"min": sim_result.median_return*100, "max": sim_result.median_return*150},
+                    current_price=announcement.get("market_context", {}).get("current_price", "N/A"),
+                    decision_trace=decision_trace
                 ))
         except Exception as e:
             print(f"Failed to dispatch Telegram alert: {e}")
@@ -700,6 +756,8 @@ async def handle_announcement(announcement: Dict):
                 "day_change_pct": enriched.get("market_context", {}).get("day_change_pct", "N/A"),
                 "volume_surge_ratio": enriched.get("market_context", {}).get("volume_surge_ratio", "N/A")
             },
+            
+            "v5_intelligence": enriched.get("v5_intelligence", {}),
             
             "id": enriched.get("id", ""),
             "received_at": enriched["received_at"],

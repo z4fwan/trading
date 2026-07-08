@@ -216,8 +216,17 @@ export class ExpectedValueCalculator {
     const evResult = this.calculateEV(params);
     
     const recommendation = {
-      action: evResult.recommendation === 'NO_TRADE' ? 'NO_TRADE' : signal,
+      action: (evResult.recommendation === 'NO_TRADE' ? 'NO_TRADE' : signal) as 'BUY' | 'SELL' | 'NO_TRADE',
       ticker,
       currentPrice,
+      targetPrice: evResult.isProfitable ? currentPrice * (1 + params.averageWin / 100) : undefined,
+      stopLoss: currentPrice * (1 - Math.abs(params.averageLoss) / 100),
+      positionSize: this.kellyCriterion(params.winProbability, Math.abs(params.averageWin / params.averageLoss)),
+      expectedReturn: evResult.evPercent,
+      riskRewardRatio: Math.abs(params.averageWin / params.averageLoss),
       evAnalysis: evResult,
       reasoning: [] as string[]
+    };
+    return recommendation;
+  }
+}

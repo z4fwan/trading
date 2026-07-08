@@ -25,6 +25,7 @@ import DashboardClock from '@/components/dashboard/DashboardClock';
 import TraderEdgePanel from '@/components/TraderEdgePanel';
 import AccuracySnapshot from '@/components/AccuracySnapshot';
 import AccessControlPanel from '@/components/AccessControlPanel';
+import DataQualityIndicator from '@/components/DataQualityIndicator';
 
 const StockMarketList = dynamic(() => import('@/components/StockMarketList'), {
   ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading stock data…</div>,
@@ -315,58 +316,42 @@ function WorkspaceView() {
 
   const renderMainContent = () => (
       <>
-        {view === 'overview' && (
-          <div key="overview">
-            {overviewPanel}
-          </div>
-        )}
-        {view === 'stocks' && (
-          <div key="stocks">
-            <PanelErrorBoundary title="Stock list failed to load">
-              <StockMarketList />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'predictions' && (
-          <div key="predictions">
-            <PanelErrorBoundary title="Predictions failed to load">
-              <WeeklyPredictions />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'momentum' && (
-          <div key="momentum">
-            <PanelErrorBoundary title="Momentum scanner failed to load">
-              <HighMomentumScanner />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'trust' && (
-          <div key="trust">
-            <PanelErrorBoundary title="AI trust panel failed to load">
-              <AITrustEngine />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'prices' && (
-          <div key="prices">
-            <PanelErrorBoundary title="Live prices failed to load">
-              <LiveMarketPrices />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'announcements' && (
-          <div key="announcements">
-            <PanelErrorBoundary title="Announcements feed failed to load">
-              <AIEventDashboard />
-            </PanelErrorBoundary>
-          </div>
-        )}
-        {view === 'access' && (
-          <div key="access">
-            <AccessControlPanel />
-          </div>
-        )}
+        <div className={view === 'overview' ? '' : 'hidden'}>
+          {overviewPanel}
+        </div>
+        <div className={view === 'stocks' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Stock list failed to load">
+            <StockMarketList />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'predictions' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Predictions failed to load">
+            <WeeklyPredictions />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'momentum' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Momentum scanner failed to load">
+            <HighMomentumScanner />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'trust' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="AI trust panel failed to load">
+            <AITrustEngine />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'prices' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Live prices failed to load">
+            <LiveMarketPrices />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'announcements' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Announcements feed failed to load">
+            <AIEventDashboard />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'access' ? '' : 'hidden'}>
+          <AccessControlPanel />
+        </div>
       </>
   );
 
@@ -465,6 +450,7 @@ function WorkspaceView() {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 min-h-[2rem]">
+            <DataQualityIndicator />
             {mounted && !isAdmin && session ? (() => {
               const remaining = Math.max(0, session.expiresAt - guestNow);
               const h = Math.floor(remaining / 3600000);
