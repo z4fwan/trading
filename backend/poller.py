@@ -356,8 +356,18 @@ class AnnouncementPoller:
             )
             
             if response.status_code == 200:
-                data = response.json()
-                items = data if isinstance(data, list) else data.get("Table", [])
+                try:
+                    data = response.json()
+                except Exception:
+                    data = None
+                if isinstance(data, list):
+                    items = data
+                elif isinstance(data, dict):
+                    items = data.get("Table", []) or []
+                else:
+                    # BSE returns the JSON string "No Record Found!" when the
+                    # query window is empty — treat it as a normal empty result.
+                    items = []
                 
                 for item in items:
                     scrip_code = str(item.get("scripCode", ""))
