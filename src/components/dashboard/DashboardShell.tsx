@@ -1,26 +1,38 @@
 'use client';
-import React, { Suspense, useEffect, useState, useTransition, useCallback } from 'react';
+import React, { Suspense, useEffect, useState, useTransition, useCallback, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { MarketDataProvider } from '@/lib/MarketDataContext';
 import MarketStatusBar from '@/components/MarketStatusBar';
 import MacroShockBanner from '@/components/MacroShockBanner';
-import { startSessionMonitor, ensureClientSession, getSessionRole } from '@/lib/sessionManager';
+import RealtimeAlertsPanel from '@/components/dashboard/RealtimeAlertsPanel';
+import { startSessionMonitor, ensureClientSession, getSessionRole, signOut } from '@/lib/sessionManager';
 import { TerminalIcon, type IconName } from '@/components/icons/TerminalIcons';
 import CommandPalette from '@/components/CommandPalette';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 
 const ADMIN_NAV: { key: string; label: string; icon: IconName }[] = [
-  { key: 'workspace', label: 'Command Workspace', icon: 'shield' },
+  { key: 'workspace', label: 'Dashboard', icon: 'dashboard' },
+  { key: 'chart', label: 'Chart', icon: 'chart' },
   { key: 'stocks', label: 'Stock Lists', icon: 'list' },
+  { key: 'edge', label: 'Trade Edge', icon: 'stocks' },
   { key: 'predictions', label: 'Weekly Predictions', icon: 'calendar' },
+  { key: 'momentum', label: 'Momentum', icon: 'predictions' },
+  { key: 'intraday', label: 'Intraday', icon: 'clock' },
+  { key: 'quant', label: 'Quant Strategies', icon: 'predictions' },
+  { key: 'backtest', label: 'Backtesting', icon: 'chart' },
+  { key: 'options', label: 'Options Flow', icon: 'search' },
+  { key: 'risk', label: 'Risk Analytics', icon: 'layers' },
   { key: 'trust', label: 'AI Trust Engine', icon: 'search' },
   { key: 'prices', label: 'Live Prices', icon: 'stocks' },
+  { key: 'announcements', label: 'Announcements', icon: 'news' },
   { key: 'access', label: 'Access Control', icon: 'users' },
 ];
 
 const GUEST_NAV: { key: string; label: string; icon: IconName }[] = [
-  { key: 'workspace', label: 'Dashboard', icon: 'shield' },
+  { key: 'workspace', label: 'Dashboard', icon: 'dashboard' },
+  { key: 'chart', label: 'Chart', icon: 'chart' },
   { key: 'prices', label: 'Live Prices', icon: 'stocks' },
+  { key: 'announcements', label: 'Announcements', icon: 'news' },
 ];
 
 function Sidebar({ collapsed, onToggle, onNavigate, onOpenCmd, isAdmin }: { collapsed: boolean; onToggle: () => void; onNavigate?: () => void; onOpenCmd?: () => void; isAdmin: boolean }) {
@@ -28,6 +40,18 @@ function Sidebar({ collapsed, onToggle, onNavigate, onOpenCmd, isAdmin }: { coll
   const searchParams = useSearchParams();
   const activeView = searchParams.get('view') || 'overview';
   const [, startNav] = useTransition();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (settingsRef.current && !settingsRef.current.contains(e.target as Node)) {
+        setSettingsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
 
   const go = (path: string) => {
     startNav(() => router.push(path, { scroll: false }));
@@ -38,12 +62,16 @@ function Sidebar({ collapsed, onToggle, onNavigate, onOpenCmd, isAdmin }: { coll
     <>
       <div className="p-4 sm:p-6 border-b border-slate-800">
         <div className="flex items-center justify-between">
-          <div className="min-w-0">
-            <div className={`text-emerald-400 font-bold tracking-wider font-mono ${collapsed ? 'text-[10px]' : 'text-sm'}`}>
-              {collapsed ? 'QA' : 'QUANTUM_ALPHA_V1'}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="logo-container h-8 w-8 sm:h-10 sm:w-10 shrink-0" role="img" aria-label="Logo">
             </div>
             {!collapsed && (
-              <div className="text-[10px] text-slate-500 uppercase mt-0.5">{isAdmin ? 'Admin Core Terminal' : 'Guest Terminal'}</div>
+              <div>
+                <div className="animate-text-gradient font-bold tracking-wider font-mono text-sm">
+                  QUANTUM_ALPHA_V1
+                </div>
+                <div className="text-[10px] text-slate-500 uppercase mt-0.5">{isAdmin ? 'Admin Core Terminal' : 'Guest Terminal'}</div>
+              </div>
             )}
           </div>
           <button onClick={onToggle}
@@ -53,7 +81,7 @@ function Sidebar({ collapsed, onToggle, onNavigate, onOpenCmd, isAdmin }: { coll
           </button>
         </div>
       </div>
-      <nav className="flex-1 p-2 sm:p-4 space-y-0.5 sm:space-y-1" role="navigation" aria-label="Dashboard navigation">
+      <nav className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-4 space-y-0.5 sm:space-y-1" role="navigation" aria-label="Dashboard navigation">
         {!collapsed && (
           <div className="text-[10px] uppercase font-bold text-slate-500 px-3 mb-2 tracking-widest">{isAdmin ? 'Market Domains' : 'Guest Access'}</div>
         )}
@@ -83,14 +111,32 @@ function Sidebar({ collapsed, onToggle, onNavigate, onOpenCmd, isAdmin }: { coll
       </nav>
       <div className="p-3 sm:p-4 border-t border-slate-800 space-y-2">
         {collapsed ? (
-          <div className="flex flex-col items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
+          <button onClick={() => setSettingsOpen(o => !o)}
+            className="w-full flex justify-center text-slate-500 hover:text-white transition-colors py-2 rounded-lg hover:bg-slate-800/30">
+            <TerminalIcon name="settings" size={16} className="shrink-0" />
+          </button>
         ) : (
           <>
-            <div className="flex items-center gap-2 text-[9px] text-slate-600 font-mono">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              Live Market Data
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[9px] text-slate-600 font-mono">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Market Data
+              </div>
+              <div className="relative" ref={settingsRef}>
+                <button onClick={() => setSettingsOpen(o => !o)}
+                  className="text-slate-500 hover:text-white transition-colors p-1 rounded-lg hover:bg-slate-800/50">
+                  <TerminalIcon name="settings" size={14} />
+                </button>
+                {settingsOpen && (
+                  <div className="absolute bottom-full right-0 mb-2 w-40 bg-slate-900 border border-slate-700 rounded-xl p-1 shadow-2xl shadow-black/50 z-50">
+                    <button onClick={() => { void signOut().then(() => { window.location.href = '/login'; }); }}
+                      className="w-full flex items-center gap-2 text-[10px] font-mono text-slate-300 hover:text-white hover:bg-slate-800/50 px-3 py-2 rounded-lg transition-colors">
+                      <TerminalIcon name="x" size={12} className="text-red-400" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
             <button onClick={onOpenCmd}
               className="w-full flex items-center gap-2 text-[8px] text-slate-600 hover:text-slate-400 font-mono px-2 py-1.5 rounded-lg hover:bg-slate-800/30 transition-all border border-slate-800/50">
@@ -111,11 +157,20 @@ function SidebarFallback({ collapsed, isAdmin }: { collapsed: boolean; isAdmin: 
   return (
     <>
       <div className="p-4 sm:p-6 border-b border-slate-800">
-        <div className={`text-emerald-400 font-bold tracking-wider font-mono ${collapsed ? 'text-[10px]' : 'text-sm'}`}>
-          {collapsed ? 'QA' : 'QUANTUM_ALPHA_V1'}
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="logo-container h-8 w-8 sm:h-10 sm:w-10 shrink-0" role="img" aria-label="Logo">
+          </div>
+          {!collapsed && (
+            <div>
+              <div className="animate-text-gradient font-bold tracking-wider font-mono text-sm">
+                QUANTUM_ALPHA_V1
+              </div>
+              <div className="text-[10px] text-slate-500 uppercase mt-0.5">{isAdmin ? 'Admin Core Terminal' : 'Guest Terminal'}</div>
+            </div>
+          )}
         </div>
       </div>
-      <nav className="flex-1 p-2 sm:p-4 space-y-0.5 sm:space-y-1">
+      <nav className="flex-1 overflow-y-auto scrollbar-hide p-2 sm:p-4 space-y-0.5 sm:space-y-1">
         {items.map(item => (
           <div key={item.key}
             className={`w-full text-slate-500 rounded-lg ${collapsed ? 'px-2 py-2 text-center' : 'px-3 py-2 text-sm'}`}>
@@ -237,6 +292,7 @@ export default function DashboardShell({ children }: { children: React.ReactNode
             <div className="dashboard-content space-y-3 sm:space-y-4">
               <MacroShockBanner />
               <MarketStatusBar />
+              <RealtimeAlertsPanel />
               {children}
             </div>
           </main>

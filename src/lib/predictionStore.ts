@@ -33,7 +33,7 @@ export interface StoredPrediction {
   id: string;
   ticker: string;
   name: string;
-  source: 'AI_QUANT' | 'WEEKLY_PREDICTIONS';
+  source: 'AI_QUANT' | 'AI_QUANT_V4' | 'WEEKLY_PREDICTIONS';
   createdAt: number;
   predictionType: 'HOURLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
@@ -79,6 +79,7 @@ export interface StoredPrediction {
   selfAnalysis?: { confidenceWasJustified: boolean; indicatorsHelped: string[]; indicatorsFailed: string[]; volatilityUnderestimated: boolean; sentimentReversed: boolean; regimeWasUnstable: boolean; confidenceTooAggressive: boolean; overallAssessment: string; lessonLearned: string };
   strongestIndicators?: string[];
   conflictingIndicators?: string[];
+  llmProvider?: string;
 }
 
 export interface TrustMetrics {
@@ -364,6 +365,15 @@ export function generateFailureAnalysis(
 
 export function getAllPredictions(): StoredPrediction[] {
   return load();
+}
+
+export function importPredictions(preds: StoredPrediction[]): void {
+  const existing = load();
+  const map = new Map(existing.map(p => [p.id, p]));
+  for (const p of preds) {
+    map.set(p.id, p);
+  }
+  save(Array.from(map.values()));
 }
 
 export function getPendingResolutions(): StoredPrediction[] {

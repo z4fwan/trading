@@ -167,6 +167,13 @@ export default function AITrustEngine() {
       </div>
 
       {/* Trust Score Header */}
+      {!metrics && (
+        <div className="border border-dashed border-slate-800 bg-slate-900/20 rounded-2xl p-8 text-center flex flex-col items-center justify-center">
+          <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+          <div className="text-[10px] font-bold font-mono text-emerald-400">Initializing Trust Engine...</div>
+          <div className="text-[9px] font-mono text-slate-500 mt-2 max-w-sm">Fetching historical prediction database and calculating AI accuracy metrics.</div>
+        </div>
+      )}
       {metrics && (
         <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5 backdrop-blur-sm">
           {allPending ? (

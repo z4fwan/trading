@@ -1,11 +1,32 @@
 import * as https from 'https';
 import { addDynamicTicker } from './dynamicUniverse';
 
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(r => setTimeout(r, ms));
+}
+
 /**
  * Bypasses NSE WAF by acquiring cookies from the homepage first,
  * then fetches real-time corporate announcements.
+ * Retries on failure for resilience during pre-market hours.
  */
 export async function fetchLiveNSEAnnouncements(): Promise<{ headline: string; source: string; tickers: string[]; url?: string }[]> {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const result = await fetchOnce();
+      if (result.length > 0 || attempt === MAX_RETRIES) return result;
+    } catch {
+      if (attempt === MAX_RETRIES) return [];
+    }
+    await sleep(RETRY_DELAY_MS * attempt);
+  }
+  return [];
+}
+
+function fetchOnce(): Promise<{ headline: string; source: string; tickers: string[]; url?: string }[]> {
   return new Promise((resolve) => {
     // Step 1: Acquire cookies
     const options = {
@@ -21,7 +42,7 @@ export async function fetchLiveNSEAnnouncements(): Promise<{ headline: string; s
     };
 
     const req = https.request(options, (res) => {
-      let cookies = res.headers['set-cookie'];
+      const cookies = res.headers['set-cookie'];
       let cookieStr = '';
       if (cookies) {
         cookieStr = cookies.map(c => c.split(';')[0]).join('; ');
@@ -52,10 +73,8 @@ export async function fetchLiveNSEAnnouncements(): Promise<{ headline: string; s
               return;
             }
 
-            // Map NSE raw data to expected format
             const items = parsed.slice(0, 20).map((item: any) => {
               if (item.symbol) {
-                // Discover and add any new NSE ticker automatically!
                 addDynamicTicker(item.symbol);
               }
               return {
@@ -74,10 +93,13 @@ export async function fetchLiveNSEAnnouncements(): Promise<{ headline: string; s
       });
 
       apiReq.on('error', () => resolve([]));
+      apiReq.on('timeout', () => { apiReq.destroy(); resolve([]); });
+      apiReq.setTimeout(10000);
       apiReq.end();
     });
 
     req.on('error', () => resolve([]));
+    req.setTimeout(15000, () => { req.destroy(); resolve([]); });
     req.end();
   });
 }

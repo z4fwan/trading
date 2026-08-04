@@ -18,16 +18,7 @@ const GLOBAL_KEY = '__quantumReviewQueue';
 function getStore(): ReviewQueueItem[] {
   const g = globalThis as unknown as Record<string, ReviewQueueItem[] | undefined>;
   if (!g[GLOBAL_KEY]) {
-    g[GLOBAL_KEY] = [{
-      id: 'REQ-MOCK-1',
-      title: 'HDFCBANK Unexpected Merger Rumor',
-      description: 'Unverified social media rumor claims HDFC Bank is acquiring a major NBFC.',
-      source: 'Twitter/X',
-      timestamp: Date.now() - (16 * 60 * 1000), // 16 minutes ago (should trigger AI)
-      status: 'PENDING',
-      similarEventsCount: 0,
-      aiProbability: 0
-    }];
+    g[GLOBAL_KEY] = [];
   }
   return g[GLOBAL_KEY]!;
 }

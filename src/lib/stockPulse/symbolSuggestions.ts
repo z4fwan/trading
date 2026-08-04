@@ -1,7 +1,6 @@
 import {
-  INDEX_NAMES,
-  INDEX_SYMBOLS,
-  INTERNATIONAL_TICKERS,
+  INDEX_TICKERS_ARRAY,
+  INDIAN_EQUITY_TICKERS,
   getTickerName,
   isIndianTicker,
 } from '@/lib/marketConfig';
@@ -72,9 +71,6 @@ function buildEntries(): SearchEntry[] {
     });
   };
 
-  for (const t of INDEX_SYMBOLS) {
-    add(t, INDEX_NAMES[t] || t, 'INDEX');
-  }
   const fullUniverse = getFullUniverse();
   for (const t of fullUniverse) {
     const market: SymbolMarket = isIndianTicker(t) ? 'NSE' : 'US';
@@ -136,7 +132,7 @@ export function searchSymbolSuggestions(query: string, limit = 14): SymbolSugges
     out.push({
       ticker: qUpper,
       label: `Use ticker "${qUpper}"`,
-      market: INTERNATIONAL_TICKERS.includes(qUpper) ? 'US' : 'NSE',
+      market: 'NSE',
     });
   }
 

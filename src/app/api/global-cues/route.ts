@@ -5,7 +5,7 @@ export const runtime = 'nodejs';
 
 let lastCues: string | null = null;
 let lastFetch = 0;
-const CACHE_TTL = 30_000;
+const CACHE_TTL = 15_000;
 
 export async function GET() {
   const now = Date.now();
@@ -47,10 +47,10 @@ export async function GET() {
     ]);
 
     const payload = JSON.stringify({
-      usClose: spChange != null ? parseFloat(spChange.toFixed(2)) : 0.5,
-      asianMarkets: nikkei != null ? parseFloat(nikkei.toFixed(2)) : 0.3,
-      giftNifty: (giftNifty != null && nifty != null) ? parseFloat((((giftNifty - nifty) / nifty) * 100).toFixed(2)) : 0.2,
-      vix: vix ?? 15,
+      usClose: spChange != null ? parseFloat(spChange.toFixed(2)) : null,
+      asianMarkets: nikkei != null ? parseFloat(nikkei.toFixed(2)) : null,
+      giftNifty: (giftNifty != null && nifty != null) ? parseFloat((((giftNifty - nifty) / nifty) * 100).toFixed(2)) : null,
+      vix: vix ?? null,
       timestamp: Date.now(),
       usMarketStatus: sp500 ? 'CLOSED' : 'UNKNOWN',
       asianMarketStatus: nikkei ? 'OPEN' : 'UNKNOWN',
@@ -65,7 +65,7 @@ export async function GET() {
     });
   } catch {
     const fallback = JSON.stringify({
-      usClose: 0.5, asianMarkets: 0.3, giftNifty: 0.2, vix: 15,
+      usClose: null, asianMarkets: null, giftNifty: null, vix: null,
       timestamp: Date.now(), usMarketStatus: 'UNKNOWN', asianMarketStatus: 'UNKNOWN', _live: false,
     });
     lastCues = fallback;

@@ -1,6 +1,6 @@
 // Indian market macro detection — NSE / RBI / SEBI / rupee / FII context
 
-import { isIndianTicker } from './marketConfig';
+import { isIndianTicker, getAssetClass } from './marketConfig';
 
 export const INDIAN_NEWS_KEYWORDS = [
   'nifty', 'sensex', 'bank nifty', 'nse ', 'bse ', 'nse india', 'bse india',
@@ -22,9 +22,13 @@ export function detectNewsRegion(
   headline: string,
   tickers: string[],
   summary?: string,
-): 'INDIAN' | 'INTERNATIONAL' {
+): 'INDIAN' | 'US' | 'CRYPTO' | 'FOREX' | 'FOREIGN' | 'INTERNATIONAL' {
   if (tickers.some(t => isIndianTicker(t))) return 'INDIAN';
   if (headlineSuggestsIndia(headline, summary)) return 'INDIAN';
+  for (const t of tickers) {
+    const cls = getAssetClass(t);
+    if (cls !== 'INDEX' && cls !== 'INDIAN') return cls;
+  }
   return 'INTERNATIONAL';
 }
 

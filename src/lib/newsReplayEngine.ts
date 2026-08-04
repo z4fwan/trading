@@ -56,20 +56,19 @@ export async function runNewsReplay(year: string = '2026'): Promise<ReplayMetric
 
   for (const event of events) {
     // Reconstruct exact historical state
-    const mockProbInputs = {
+    const probInputs = {
       eventType: 'GENERAL',
       sentiment: event.actualOutcome.actual3DayMovePct > 0 ? 'BULLISH' : 'BEARISH' as any,
-      sentimentScore: Math.random() * 40 + 40,
+      sentimentScore: 50,
       urgency: 70,
       niftyTrend: event.marketSnapshot.niftyTrend,
       sectorStrength: event.marketSnapshot.sectorStrength,
       rsi: event.marketSnapshot.rsi,
       relativeVolume: event.marketSnapshot.relativeVolume,
-      historicalWinRate: 50,
-      historicalMatchCount: 5
+      historicalMatchCount: 0
     };
 
-    const result = calculateEventProbability(mockProbInputs);
+    const result = calculateEventProbability(probInputs);
     const predictedPositive = result.probability > 60;
     const actualPositive = event.actualOutcome.actual3DayMovePct > 3.0;
 
@@ -85,7 +84,7 @@ export async function runNewsReplay(year: string = '2026'): Promise<ReplayMetric
         name: event.company,
         source: 'AI_QUANT',
         predictionType: 'HOURLY',
-        direction: mockProbInputs.sentiment,
+        direction: probInputs.sentiment,
         bullishProb: result.probability,
         bearishProb: 100 - result.probability,
         confidence: result.probability,
@@ -97,7 +96,7 @@ export async function runNewsReplay(year: string = '2026'): Promise<ReplayMetric
         marketCondition: 'NORMAL',
         regime: 'NORMAL',
         taSnapshot: null,
-        sentimentScore: mockProbInputs.sentimentScore,
+        sentimentScore: probInputs.sentimentScore,
         reasoning: ['Replay Engine Match'],
         modelVersion: registry,
         reviewStatus: 'AUTO'

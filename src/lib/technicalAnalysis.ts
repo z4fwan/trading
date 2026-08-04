@@ -140,14 +140,36 @@ export function calculateIndicators(candles: OHLC[]): TAIndicators | null {
   }
   const vwap = volSum ? pvSum / volSum : lastClose;
 
-  // Supertrend (ATR multiplier 3, period 10)
+  // Supertrend (ATR multiplier 3, period 10) — standard carry-forward bands.
+  // Previous code only built the UPPER band (hlAvg + 3*ATR) and called every
+  // price below it "down", which is true ~always — a systematic bearish bias
+  // that infected every prediction downstream.
   const stPeriod = 10;
-  const stAtr = avg(trueRanges.slice(-stPeriod));
-  const hlAvg = (highs[highs.length - 1] + lows[lows.length - 1]) / 2;
-  const superVal = hlAvg + 3 * stAtr;
+  const stMult = 3;
+  let stUpper = 0;
+  let stLower = 0;
+  let stDir: 'up' | 'down' = 'up';
+  for (let i = stPeriod; i < len; i++) {
+    const atrI = avg(trueRanges.slice(i - stPeriod, i));
+    const hl = (highs[i] + lows[i]) / 2;
+    const upper = hl + stMult * atrI;
+    const lower = hl - stMult * atrI;
+    const close = closes[i];
+    if (i === stPeriod) {
+      stUpper = upper;
+      stLower = lower;
+      stDir = close > lower ? 'up' : 'down';
+    } else {
+      stUpper = (stUpper === upper || close > stUpper) ? upper : stUpper;
+      stLower = (stLower === lower || close < stLower) ? lower : stLower;
+      if (close > stLower) stDir = 'up';
+      else if (close < stUpper) stDir = 'down';
+    }
+  }
+  const superVal = stDir === 'up' ? stLower : stUpper;
   const supertrend = {
-    value: superVal,
-    direction: (lastClose > superVal ? 'up' : 'down') as 'up' | 'down',
+    value: parseFloat(superVal.toFixed(2)),
+    direction: stDir as 'up' | 'down',
   };
 
   // ADX (14)
@@ -445,17 +467,32 @@ export function generatePrediction(
   const minSignal = Math.min(bullishScore, bearishScore);
   const conflictPenalty = minSignal > 25 ? minSignal * 0.08 : 0;
 
-  let rawConfidence = Math.max(bullishScore, bearishScore) - conflictPenalty;
-  const dominanceRatio = Math.max(bullishScore, bearishScore) / total;
-  rawConfidence = rawConfidence * dominanceRatio;
-  const trendCap = adx > 50 ? 80 : adx > 35 ? 75 : adx > 25 ? 70 : 65;
-  const clampedConfidence = clampConfidence(Math.min(trendCap, Math.max(20, Math.round(rawConfidence))));
+  // Confidence = dominant signal strength minus conflict, lightly discounted
+  // when the trend is too weak to trust. (Previously this was multiplied by the
+  // dominance ratio AND capped by ADX tier, double-squashing every result into
+  // the 40-60 band regardless of how clean the signal actually was.)
+  const rawConfidence = Math.max(bullishScore, bearishScore) - conflictPenalty;
+  const adxFactor = adx < 15 ? 0.75 : adx < 20 ? 0.85 : 1;
+  const clampedConfidence = clampConfidence(Math.round(rawConfidence * adxFactor));
 
   const trendStrength = adxStrong ? parseFloat(Math.min(adx, 80).toFixed(1)) : parseFloat((adx * 0.6).toFixed(1));
   const momentumScore = parseFloat((Math.abs(rsi - 50) * 1.5).toFixed(1));
 
-  const direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
+  let direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL' =
     bullishProb > 65 ? 'BULLISH' : bearishProb > 65 ? 'BEARISH' : 'NEUTRAL';
+
+  // Strict Confluence Filter for High Accuracy
+  if (direction === 'BULLISH') {
+    if (!(price > ema[20] && macd.histogram > 0 && rsi > 50)) {
+      direction = 'NEUTRAL';
+      reasoning.push('Confluence failed: requires Price > EMA20, MACD > 0, and RSI > 50 for strict accuracy.');
+    }
+  } else if (direction === 'BEARISH') {
+    if (!(price < ema[20] && macd.histogram < 0 && rsi < 50)) {
+      direction = 'NEUTRAL';
+      reasoning.push('Confluence failed: requires Price < EMA20, MACD < 0, and RSI < 50 for strict accuracy.');
+    }
+  }
 
   let riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'EXTREME' = 'MEDIUM';
   if (volatilityRisk > 35 || adx > 50) riskLevel = 'EXTREME';

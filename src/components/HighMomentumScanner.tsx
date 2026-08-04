@@ -135,32 +135,32 @@ function getRankEmoji(rank: MomentumStock['momentumRank']): string {
 function generatePreMarketPrediction(
   ticker: string,
   prevClose: number,
-  globalCues: { usClose: number; asianMarkets: number; giftNifty: number },
+  globalCues: { usClose: number | null; asianMarkets: number | null; giftNifty: number | null },
   sectorMomentum: number,
 ): { direction: 'BULLISH' | 'BEARISH'; confidence: number; expectedMove: number; reasoning: string[] } {
   const reasoning: string[] = [];
   let bullishScore = 50;
 
   // US market influence
-  if (globalCues.usClose > 1) {
+  if (globalCues.usClose != null && globalCues.usClose > 1) {
     bullishScore += 10;
     reasoning.push(`US markets closed +${globalCues.usClose.toFixed(1)}% — positive spillover expected`);
-  } else if (globalCues.usClose < -1) {
+  } else if (globalCues.usClose != null && globalCues.usClose < -1) {
     bullishScore -= 10;
     reasoning.push(`US markets closed ${globalCues.usClose.toFixed(1)}% — negative spillover expected`);
   }
 
   // Asian markets
-  if (globalCues.asianMarkets > 0.5) {
+  if (globalCues.asianMarkets != null && globalCues.asianMarkets > 0.5) {
     bullishScore += 8;
     reasoning.push('Asian markets trading positive — supportive sentiment');
   }
 
   // GIFT Nifty
-  if (globalCues.giftNifty > 0.3) {
+  if (globalCues.giftNifty != null && globalCues.giftNifty > 0.3) {
     bullishScore += 12;
     reasoning.push(`GIFT Nifty indicates ${globalCues.giftNifty.toFixed(1)}% gap-up opening`);
-  } else if (globalCues.giftNifty < -0.3) {
+  } else if (globalCues.giftNifty != null && globalCues.giftNifty < -0.3) {
     bullishScore -= 12;
     reasoning.push(`GIFT Nifty indicates ${globalCues.giftNifty.toFixed(1)}% gap-down opening`);
   }
@@ -173,7 +173,7 @@ function generatePreMarketPrediction(
 
   const direction = bullishScore > 55 ? 'BULLISH' : bullishScore < 45 ? 'BEARISH' : 'BULLISH';
   const confidence = Math.abs(bullishScore - 50) * 2;
-  const expectedMove = Math.abs(globalCues.giftNifty) + Math.abs(globalCues.usClose) * 0.3;
+  const expectedMove = (globalCues.giftNifty != null ? Math.abs(globalCues.giftNifty) : 0) + (globalCues.usClose != null ? Math.abs(globalCues.usClose) * 0.3 : 0);
 
   return {
     direction,
@@ -208,13 +208,13 @@ function generateLiveMomentumPrediction(
     reasoning.push(`Volume ${volumeRatio.toFixed(1)}x average — strong participation`);
   }
 
-  // RSI
+  // RSI — momentum scanner detects momentum, so high RSI = strong momentum
   if (ta.rsi > 60 && ta.rsi < 75) {
     bullishScore += 10;
     reasoning.push(`RSI at ${ta.rsi.toFixed(0)} — bullish momentum zone`);
-  } else if (ta.rsi > 75) {
-    bullishScore -= 5;
-    reasoning.push(`RSI at ${ta.rsi.toFixed(0)} — overbought, caution`);
+  } else if (ta.rsi >= 75) {
+    bullishScore += 10;
+    reasoning.push(`RSI at ${ta.rsi.toFixed(0)} — very strong momentum`);
   }
 
   // MACD
@@ -260,6 +260,8 @@ export default function HighMomentumScanner() {
   const [executedTrades, setExecutedTrades] = useState<Set<string>>(new Set());
   const [dynamicUniverse, setDynamicUniverse] = useState<string[]>([]);
   const lastScanRef = useRef(0);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Get current market status
   const marketStatus = useMemo(() => {
@@ -323,7 +325,7 @@ export default function HighMomentumScanner() {
     const priceMap = stocks as Record<string, QuoteData>;
     const missingHistory: string[] = [];
 
-    // Scan all Indian equities + dynamic universe without artificial cap
+    // Scan all Indian equities + dynamic universe
     const tickersToScan = [...new Set([...NIFTY_50_TICKERS, ...INDIAN_EQUITY_TICKERS, ...dynamicUniverse])];
 
     for (const ticker of tickersToScan) {
@@ -393,7 +395,7 @@ export default function HighMomentumScanner() {
       }
 
       // Calculate momentum score
-      let momentumScore = ta
+      const momentumScore = ta
         ? calculateMomentumScore(
             priceChange,
             volumeRatio,
@@ -554,28 +556,28 @@ export default function HighMomentumScanner() {
           <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">US Close</div>
-              <div className={`font-bold ${globalCues.usClose >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.usClose >= 0 ? '+' : ''}{globalCues.usClose.toFixed(2)}%
+              <div className={`font-bold ${globalCues.usClose != null && globalCues.usClose >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {globalCues.usClose != null ? `${globalCues.usClose >= 0 ? '+' : ''}${globalCues.usClose.toFixed(2)}%` : '\u2014'}
               </div>
               <div className="text-[6px] text-slate-600">{globalCues.usMarketStatus}</div>
             </div>
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">Asian Markets</div>
-              <div className={`font-bold ${globalCues.asianMarkets >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.asianMarkets >= 0 ? '+' : ''}{globalCues.asianMarkets.toFixed(2)}%
+              <div className={`font-bold ${globalCues.asianMarkets != null && globalCues.asianMarkets >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {globalCues.asianMarkets != null ? `${globalCues.asianMarkets >= 0 ? '+' : ''}${globalCues.asianMarkets.toFixed(2)}%` : '\u2014'}
               </div>
               <div className="text-[6px] text-slate-600">{globalCues.asianMarketStatus}</div>
             </div>
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">GIFT Nifty</div>
-              <div className={`font-bold ${globalCues.giftNifty >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {globalCues.giftNifty >= 0 ? '+' : ''}{globalCues.giftNifty.toFixed(2)}%
+              <div className={`font-bold ${globalCues.giftNifty != null && globalCues.giftNifty >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {globalCues.giftNifty != null ? `${globalCues.giftNifty >= 0 ? '+' : ''}${globalCues.giftNifty.toFixed(2)}%` : '\u2014'}
               </div>
               <div className="text-[6px] text-slate-600">SGX Nifty</div>
             </div>
             <div className="bg-slate-950/50 rounded-lg p-2 text-center">
               <div className="text-slate-500 text-[8px]">VIX</div>
-              <div className="font-bold text-purple-400">{globalCues.vix.toFixed(1)}</div>
+              <div className="font-bold text-purple-400">{globalCues.vix != null ? globalCues.vix.toFixed(1) : '\u2014'}</div>
               <div className="text-[6px] text-slate-600">Fear Index</div>
             </div>
           </div>
@@ -616,8 +618,12 @@ export default function HighMomentumScanner() {
           Scanning for high momentum stocks…
         </div>
       ) : momentumStocks.length === 0 ? (
-        <div className="text-center py-12 text-slate-500 font-mono text-xs">
-          No high momentum stocks detected — market may be closed or low volatility
+        <div className="flex flex-col items-center justify-center py-12 px-4 text-center">
+          <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mb-4" />
+          <h3 className="text-emerald-400 font-mono font-bold mb-1">Scanning for Momentum...</h3>
+          <p className="text-[10px] text-slate-500 font-mono max-w-sm">
+            Fetching history and calculating technicals. This takes about 30 seconds on server startup. If this persists, no momentum setups were found.
+          </p>
         </div>
       ) : (
         <div className="space-y-4">

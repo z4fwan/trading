@@ -47,7 +47,7 @@ export interface StockPulseCycleResult {
 }
 
 function getCache(): ServerStockPulseCache {
-  const g = globalThis as Record<string, unknown>;
+  const g = globalThis as unknown as Record<string, unknown>;
   if (!g[GLOBAL_CACHE_KEY]) {
     g[GLOBAL_CACHE_KEY] = {
       updatedAt: 0,
@@ -65,7 +65,7 @@ function getCache(): ServerStockPulseCache {
 }
 
 function getMemory(): Record<string, ServerPulseMemoryEntry> {
-  const g = globalThis as Record<string, unknown>;
+  const g = globalThis as unknown as Record<string, unknown>;
   if (!g[GLOBAL_MEMORY_KEY]) g[GLOBAL_MEMORY_KEY] = {};
   return g[GLOBAL_MEMORY_KEY] as Record<string, ServerPulseMemoryEntry>;
 }

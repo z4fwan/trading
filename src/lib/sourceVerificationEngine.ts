@@ -309,23 +309,26 @@ export function classifyEventType(headline: string, summary: string): EventType 
   if (text.includes('BUYBACK') || text.includes('BUY-BACK')) {
     return EventType.BUYBACK;
   }
-  if (text.includes('RESULT') || text.includes('EARNINGS')) {
-    if (text.includes('BEAT') || text.includes('SURGE') || text.includes('UP')) {
+  if ((text.includes('ORDER') && (text.includes('WORTH') || text.includes('FROM ') || text.includes('RECEIV') || text.includes('SECUR') || text.includes('BAG') || text.includes('WIN') || text.includes('NEW') || text.includes('MAJOR') || text.includes('LARGE') || text.includes('RS ') || text.includes('VALUE'))) || text.includes('CONTRACT WIN') || text.includes('LETTER OF AWARD') || text.includes('LOA ') || text.includes('WINS ORDER') || text.includes('GETS ORDER') || text.includes('ORDER BOOK') || (text.includes('CONTRACT') && (text.includes('WORTH') || text.includes('VALUE') || text.includes('RS ') || text.includes('FROM ') || text.includes('SECUR') || text.includes('WIN') || text.includes('BAG')))) {
+    return EventType.ORDER_WIN;
+  }
+  if (text.includes('EARNINGS') || (text.includes('RESULT') && (text.includes('Q') || text.includes('HALF') || text.includes('YEAR') || text.includes('ANNUAL') || text.includes('QUARTER') || text.includes('PROFIT') || text.includes('REVENUE') || text.includes('INCOME') || text.includes('FINANCIAL')))) {
+    if (text.includes('BEAT') || text.includes('SURGE') || text.includes(' UP ') || text.startsWith('UP ')) {
       return EventType.EARNINGS_BEAT;
     }
-    if (text.includes('MISS') || text.includes('DECLINE') || text.includes('DOWN')) {
+    if (text.includes('MISS') || text.includes('DECLINE') || text.includes(' DOWN ') || text.startsWith('DOWN ') || text.includes('LOSS')) {
       return EventType.EARNINGS_MISS;
     }
     return EventType.EARNINGS_BEAT; // Default to positive
   }
-  if (text.includes('ORDER') || text.includes('CONTRACT')) {
-    return EventType.ORDER_WIN;
-  }
-  if (text.includes('FDA') || text.includes('APPROVAL')) {
+  if (text.includes('FDA') && text.includes('APPROVAL')) {
     return EventType.FDA_APPROVAL;
   }
-  if (text.includes('DEBT') && (text.includes('REDUCE') || text.includes('REPAY'))) {
+  if ((text.includes('DEBT') && (text.includes('REDUCE') || text.includes('REPAY') || text.includes('FREE'))) || text.includes('CREDIT UPGRADE') || text.includes('TURNAROUND')) {
     return EventType.DEBT_REDUCTION;
+  }
+  if (text.includes('FUND RAISE') || text.includes('QIP') || text.includes('RIGHTS ISSUE')) {
+    return EventType.FUND_RAISING;
   }
   if (text.includes('BLOCK DEAL')) {
     return EventType.BLOCK_DEAL;
@@ -333,10 +336,10 @@ export function classifyEventType(headline: string, summary: string): EventType 
   if (text.includes('BULK DEAL')) {
     return EventType.BULK_DEAL;
   }
-  if (text.includes('PROMOTER') && text.includes('BUY')) {
+  if (text.includes('PROMOTER') && (text.includes(' BUY ') || text.startsWith('BUY ') || text.includes(' BUYING') || text.includes('BUYS '))) {
     return EventType.PROMOTER_BUYING;
   }
-  if (text.includes('PROMOTER') && text.includes('SELL')) {
+  if (text.includes('PROMOTER') && (text.includes(' SELL ') || text.startsWith('SELL ') || text.includes(' SELLING') || text.includes('SELLS '))) {
     return EventType.PROMOTER_SELLING;
   }
   if (text.includes('RESIGN') || text.includes('STEP DOWN')) {

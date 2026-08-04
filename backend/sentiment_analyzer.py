@@ -46,7 +46,9 @@ class FinBERTIndiaAnalyzer:
                 "merger approval", "demerger", "listing", "index inclusion", "upgrade",
                 "target price hike", "analyst upgrade", "positive outlook", "bagged",
                 "received letter of award", "emerged as l1", "secured order",
-                "won bid", "selected as", "awarded", "finalized", "approved"
+                "won bid", "selected as", "awarded", "finalized", "approved",
+                "breakout", "special dividend", "share buyback", "block deal",
+                "capacity utilization", "new product launch", "patent approval"
             ],
             "negative": [
                 "investigation", "show cause", "default", "delisting", "regulatory",

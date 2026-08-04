@@ -69,6 +69,9 @@ export default function LearningProgress() {
   const [expanded, setExpanded] = useState(false);
   const [totalPreds, setTotalPreds] = useState(0);
   const [pendingPreds, setPendingPreds] = useState(0);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     const check = () => {
@@ -106,6 +109,8 @@ export default function LearningProgress() {
   const firstCurveAcc = curve.length > 0 ? curve[0].accuracy : 0;
   const lastCurveAcc = curve.length > 0 ? curve[curve.length - 1].accuracy : 0;
   const learningImprovement = firstCurveAcc > 0 ? lastCurveAcc - firstCurveAcc : 0;
+
+  if (!mounted) return null;
 
   const isAccumulating = totalPreds === 0;
 

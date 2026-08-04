@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { getSupabase } from '@/lib/supabase';
+import { useMarketData } from '@/lib/MarketDataContext';
 
 interface PaperTrade {
   id: string;
@@ -16,29 +16,21 @@ interface PaperTrade {
 }
 
 export default function LiveTradePortfolio() {
-  const [trades, setTrades] = useState<PaperTrade[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchTrades = async () => {
-    const supabase = getSupabase();
-    if (!supabase) { setLoading(false); return; }
-    
-    const { data, error } = await supabase
-      .from('paper_trades')
-      .select('*')
-      .order('created_at', { ascending: false });
-      
-    if (!error && data) {
-      setTrades(data as PaperTrade[]);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchTrades();
-    const t = setInterval(fetchTrades, 30000);
-    return () => clearInterval(t);
-  }, []);
+  const { engineState } = useMarketData();
+  const trades: PaperTrade[] = engineState?.livePaperTrades?.map((t: any) => ({
+    id: t.id,
+    ticker: t.ticker,
+    direction: t.direction,
+    entry_price: t.entryPrice,
+    exit_price: t.exitPrice,
+    pnl_percent: t.netPnlPercent,
+    status: t.result === 'PENDING' ? 'OPEN' : 'CLOSED',
+    created_at: t.entryDate,
+    reasoning: t.reason,
+    confidence: t.accuracyPercent
+  })) || [];
+  
+  const loading = !engineState;
 
   const closedTrades = trades.filter(t => t.status === 'CLOSED' || t.exit_price);
   const openTrades = trades.filter(t => t.status === 'OPEN' && !t.exit_price);

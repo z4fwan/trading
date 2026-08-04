@@ -110,6 +110,7 @@ export interface StockPulseReport {
   businessBlurb?: string;
   epsQuarters?: EpsQuarterRow[];
   dividendHistory?: DividendYearRow[];
+  dalalaiIntelligence?: any;
 
   price: {
     cmp: number | null;

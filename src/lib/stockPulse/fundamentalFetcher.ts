@@ -17,7 +17,10 @@ const NIFTY_PE_PROXY = 22;
 
 let _yf: InstanceType<typeof YahooFinance> | null = null;
 function yf() {
-  if (!_yf) _yf = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
+  if (!_yf) {
+    _yf = new YahooFinance({ suppressNotices: ['yahooSurvey'], validation: { logErrors: false } });
+    
+  }
   return _yf;
 }
 
@@ -96,9 +99,10 @@ export async function fetchRawFundamentals(inputTicker: string): Promise<RawFund
     { name: 'Screener.in', url: `https://www.screener.in/company/${ticker}/` },
   ];
 
+  const abortOpts = { fetchOptions: { signal: AbortSignal.timeout(18000) } };
   try {
     const [quote, summary] = await Promise.all([
-      yf().quote(yahooSym),
+      yf().quote(yahooSym, {}, abortOpts),
       yf().quoteSummary(yahooSym, {
         modules: [
           'summaryDetail',
@@ -106,7 +110,7 @@ export async function fetchRawFundamentals(inputTicker: string): Promise<RawFund
           'defaultKeyStatistics',
           'price',
         ],
-      }).catch(() => null),
+      }, abortOpts).catch(() => null),
     ]);
 
     const sd = summary?.summaryDetail as Record<string, unknown> | undefined;

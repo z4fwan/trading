@@ -1,11 +1,10 @@
 'use client';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useMarketData } from '@/lib/MarketDataContext';
-import { INDIAN_EQUITY_TICKERS, INTERNATIONAL_TICKERS, INDIAN_UNIVERSE_LABEL, getTickerName, isIndianTicker } from '@/lib/marketConfig';
+import { INDIAN_EQUITY_TICKERS, INDIAN_UNIVERSE_LABEL, getTickerName, isIndianTicker } from '@/lib/marketConfig';
 import { hasQuoteData, normalizeStocksMap } from '@/lib/quoteDisplay';
 import { getFeedStatusDisplay } from '@/lib/feedStatus';
 import { TerminalIcon } from '@/components/icons/TerminalIcons';
-import SmoothPrice from '@/components/SmoothPrice';
 
 export default function StockMarketList() {
   const { stocks, connectionStatus, pricesStreaming, market } = useMarketData();
@@ -13,37 +12,41 @@ export default function StockMarketList() {
   const feed = getFeedStatusDisplay(connectionStatus, pricesStreaming, market.phase);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<'ticker' | 'changePercent' | 'price'>('changePercent');
+  const [trendingTickers, setTrendingTickers] = useState<Set<string>>(new Set());
 
-  // Build list of all stocks: Nifty 500 + International + AI-discovered
-  const allEntries = useMemo(() => {
-    const entries: { ticker: string; market: 'INDIAN' | 'INTERNATIONAL' }[] = [];
+  useEffect(() => {
+    fetch('/api/sentiment?action=trending', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.trending) setTrendingTickers(new Set(data.trending));
+      })
+      .catch(() => {});
+    const refresh = setInterval(() => {
+      fetch('/api/sentiment?action=trending', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.trending) setTrendingTickers(new Set(data.trending)); })
+        .catch(() => {});
+    }, 10 * 60 * 1000); 
+    return () => clearInterval(refresh);
+  }, []);
+
+  const stockList = useMemo(() => {
+    const entries: { ticker: string; market: 'INDIAN' }[] = [];
     const seen = new Set<string>();
 
     for (const t of INDIAN_EQUITY_TICKERS) {
-      entries.push({ ticker: t, market: 'INDIAN' });
-      seen.add(t);
-    }
-    for (const t of INTERNATIONAL_TICKERS) {
-      entries.push({ ticker: t, market: 'INTERNATIONAL' });
-      seen.add(t);
+      if (!seen.has(t)) { entries.push({ ticker: t, market: 'INDIAN' }); seen.add(t); }
     }
     
-    // Add dynamic tickers discovered by AI engine
     for (const t of Object.keys(stocks)) {
-      if (!seen.has(t) && !t.startsWith('^')) {
-        const marketType = isIndianTicker(t) ? 'INDIAN' : 'INTERNATIONAL';
-        entries.push({ ticker: t, market: marketType });
+      if (!seen.has(t) && !t.startsWith('^') && isIndianTicker(t)) {
+        entries.push({ ticker: t, market: 'INDIAN' });
         seen.add(t);
       }
     }
     
     return entries;
   }, [stocks]);
-
-  const indianLoaded = useMemo(
-    () => allEntries.filter(e => e.market === 'INDIAN' && hasQuoteData(normalizedStocks[e.ticker])).length,
-    [normalizedStocks, allEntries],
-  );
 
   const q = search.trim().toLowerCase();
   const filterFn = (s: { ticker: string }) => {
@@ -64,50 +67,65 @@ export default function StockMarketList() {
     return Math.abs(sb!.changePercent) - Math.abs(sa!.changePercent);
   };
 
-  const renderRow = (ticker: string, market: 'INDIAN' | 'INTERNATIONAL') => {
+  const renderRow = (ticker: string) => {
     const s = normalizedStocks[ticker];
     const ready = hasQuoteData(s);
-    const currency = market === 'INDIAN' ? '₹' : '$';
-    const displayName = s?.name || getTickerName(ticker);
+    const name = s?.name || getTickerName(ticker);
+    
+    if (!ready) {
+      return (
+        <div key={ticker} className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-7 gap-2 px-2 sm:px-4 py-2 sm:py-2.5 items-center hover:bg-slate-800/20 border-b border-slate-800/10 opacity-40">
+          <div className="col-span-2 flex flex-col justify-center">
+            <div className="font-bold text-white text-[8px] sm:text-[10px] uppercase truncate">{ticker}</div>
+            <div className="text-[7px] sm:text-[9px] text-slate-500 truncate">{name}</div>
+          </div>
+          <div className="col-span-2 sm:col-span-1 text-slate-600 text-xs text-right">--</div>
+          <div className="col-span-2 sm:col-span-3 lg:col-span-4 text-[7px] sm:text-[9px] text-slate-600 flex items-center justify-end sm:justify-start gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-700 animate-pulse"></span>
+            Awaiting Market Data
+          </div>
+        </div>
+      );
+    }
+
+    const price = s.price;
+    const cVal = s.change;
+    const cpVal = s.changePercent;
+
+    const isUp = s!.change > 0;
+    const isDown = s!.change < 0;
+    const colorClass = isUp ? 'text-emerald-400' : isDown ? 'text-red-400' : 'text-slate-400';
+    const bgClass = isUp ? 'bg-emerald-950/10' : isDown ? 'bg-red-950/10' : 'bg-transparent';
+
     return (
-      <div key={ticker} className={`grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-8 gap-1 sm:gap-2 text-[8px] sm:text-[10px] font-mono items-center px-1.5 sm:px-3 py-1.5 sm:py-2.5 rounded-lg hover:bg-slate-800/30 ${
-        !ready ? 'bg-slate-950/40 opacity-70' : s!.change >= 0 ? 'bg-emerald-950/5' : 'bg-red-950/5'
-      }`}>
-        <div className="col-span-1 font-bold text-white text-[9px] sm:text-[10px]">{ticker}</div>
-        <div className="col-span-2 text-slate-400 truncate text-[7px] sm:text-[10px]" title={displayName}>{displayName}</div>
-        {ready ? (
-          <>
-            <div className="col-span-1 text-right font-bold text-white text-[9px] sm:text-[10px]">
-              <SmoothPrice value={s!.price} decimals={2} prefix={currency} />
-            </div>
-            <div className={`col-span-1 text-right font-bold price-change ${s!.change >= 0 ? 'text-emerald-400' : 'text-red-400'} text-[9px] sm:text-[10px]`}>
-              {s!.change >= 0 ? '+' : ''}{s!.change.toFixed(2)}
-            </div>
-            <div className={`col-span-1 text-right font-bold price-change ${s!.changePercent >= 0 ? 'text-emerald-400' : 'text-red-400'} text-[9px] sm:text-[10px]`}>
-              {s!.changePercent >= 0 ? '+' : ''}{s!.changePercent.toFixed(2)}%
-            </div>
-            <div className="col-span-1 text-right text-slate-500 text-[7px] sm:text-[10px] hidden sm:block">{currency}{(s!.low || s!.price).toFixed(0)}/{currency}{(s!.high || s!.price).toFixed(0)}</div>
-          </>
-        ) : (
-          <>
-            <div className="col-span-3 text-right text-slate-500 text-[8px] sm:text-[9px] animate-pulse">Fetching quote…</div>
-            <div className="col-span-1 text-right text-slate-600 hidden sm:block">—</div>
-          </>
-        )}
-        <div className="col-span-1 text-right text-slate-500 truncate text-[7px] sm:text-[10px] hidden lg:block">{market === 'INDIAN' ? 'NSE' : 'NYSE'}</div>
+      <div key={ticker} className={`grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-7 gap-2 px-2 sm:px-4 py-2 sm:py-2.5 items-center hover:bg-slate-800/20 border-b border-slate-800/10 ${bgClass} transition-colors`}>
+        <div className="col-span-2 flex flex-col justify-center">
+          <div className="font-bold text-white text-[8px] sm:text-[10px] flex items-center gap-1.5 truncate">
+            <span className={`text-[6px] sm:text-[7px] px-1 py-0.5 rounded font-bold text-orange-400 bg-orange-950 border border-orange-800/30`}>IN</span>
+            {ticker}
+          </div>
+          <div className="text-[7px] sm:text-[9px] text-slate-400 truncate mt-0.5" title={name}>{name}</div>
+        </div>
+        
+        <div className="col-span-2 sm:col-span-1 text-right text-xs sm:text-sm font-mono text-white font-medium">
+          ₹{price}
+        </div>
+        
+        <div className={`col-span-2 sm:col-span-1 text-right text-[8px] sm:text-[10px] font-mono font-bold ${colorClass}`}>
+          {isUp ? '+' : ''}{cVal}
+        </div>
+        
+        <div className={`col-span-2 sm:col-span-1 text-right text-[8px] sm:text-[10px] font-mono font-bold ${colorClass}`}>
+          {isUp ? '+' : ''}{cpVal}%
+        </div>
+        
+        <div className="col-span-1 text-right text-slate-500 truncate text-[7px] sm:text-[10px] hidden lg:block">NSE</div>
       </div>
     );
   };
 
   const searching = q.length > 0;
-  const indianEntries = allEntries.filter(e => e.market === 'INDIAN').filter(filterFn).sort(sortFn);
-  const intlEntries = allEntries.filter(e => e.market === 'INTERNATIONAL').filter(filterFn).sort(sortFn);
-
-  const indianWithPrice = allEntries.filter(e => e.market === 'INDIAN' && hasQuoteData(normalizedStocks[e.ticker]));
-  const indianUp = indianWithPrice.filter(e => (normalizedStocks[e.ticker]?.change || 0) > 0).length;
-  const indianDown = indianWithPrice.filter(e => (normalizedStocks[e.ticker]?.change || 0) < 0).length;
-  const intlUp = allEntries.filter(e => e.market === 'INTERNATIONAL' && (normalizedStocks[e.ticker]?.change || 0) > 0).length;
-  const intlDown = allEntries.filter(e => e.market === 'INTERNATIONAL' && (normalizedStocks[e.ticker]?.change || 0) < 0).length;
+  const filteredList = stockList.filter(filterFn).sort(sortFn);
 
   return (
     <div className="space-y-5">
@@ -115,16 +133,15 @@ export default function StockMarketList() {
         <div>
           <h2 className="text-lg font-bold text-white font-mono tracking-tight flex items-center gap-2">
             <TerminalIcon name="list" size={20} className="text-emerald-400 shrink-0" />
-            Full Market Stock Lists
+            Indian Market Stock List
           </h2>
           <p className="text-[9px] text-slate-500 font-mono">
-            {INDIAN_UNIVERSE_LABEL} + US watchlist + AI discovered — Yahoo Finance live / last close
+            {INDIAN_UNIVERSE_LABEL} + AI discovered — Yahoo Finance live / last close
             {connectionStatus === 'disconnected' && <span className="text-red-400 ml-2">⚠️ No connection — data frozen</span>}
-            {connectionStatus === 'stale' && <span className="text-yellow-500 ml-2">≈ stale</span>}
           </p>
         </div>
           <div className="flex items-center gap-2">
-          <input id="stock-list-search" name="stockSearch" type="search" placeholder={`Search ${indianEntries.length} stocks…`} value={search}
+          <input id="stock-list-search" name="stockSearch" type="search" placeholder={`Search ${filteredList.length} stocks…`} value={search}
             onChange={e => setSearch(e.target.value)}
             className="bg-slate-950 border border-slate-800 rounded-lg px-2 sm:px-3 py-1 sm:py-1.5 text-[8px] sm:text-[10px] font-mono text-white placeholder-slate-600 w-28 sm:w-48 outline-none focus:border-emerald-500/50 transition-colors" />
           <select id="stock-list-sort" name="stockSort" value={sortBy} onChange={e => setSortBy(e.target.value as 'ticker' | 'changePercent' | 'price')}
@@ -144,9 +161,6 @@ export default function StockMarketList() {
               <TerminalIcon name="india" size={16} className="text-orange-400" />
               Indian Stocks — NSE/BSE
             </h3>
-            <span className="text-[9px] text-slate-500 font-mono bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
-              {searching ? `${indianEntries.length} matches` : `${indianLoaded} / ${indianEntries.length} live`}
-            </span>
           </div>
           <span className="text-[8px] text-slate-600 font-mono flex items-center gap-1">
             <span className={`h-1.5 w-1.5 rounded-full ${feed.dotClass}`} /> {feed.label}
@@ -155,20 +169,18 @@ export default function StockMarketList() {
         <div className="bg-slate-950/40 rounded-xl p-1 sm:p-2">
           <div className="overflow-x-auto custom-scrollbar">
           <div className="min-w-[350px] sm:min-w-0">
-          <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-8 gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 text-[7px] sm:text-[8px] font-bold text-slate-600 uppercase tracking-wider font-mono border-b border-slate-800/50">
-            <span className="col-span-1">Ticker</span>
-            <span className="col-span-2">Name</span>
-            <span className="col-span-1 text-right">Price</span>
-            <span className="col-span-1 text-right">Change</span>
-            <span className="col-span-1 text-right">%</span>
-            <span className="col-span-1 text-right hidden sm:block">Range</span>
-            <span className="col-span-1 text-right hidden lg:block">Sector</span>
+          <div className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-7 gap-2 px-2 sm:px-4 py-2 text-[7px] sm:text-[8px] font-bold text-slate-600 uppercase tracking-wider font-mono border-b border-slate-800/50">
+            <span className="col-span-2">Ticker</span>
+            <span className="col-span-2 sm:col-span-1 text-right">Price</span>
+            <span className="col-span-2 sm:col-span-1 text-right">Change</span>
+            <span className="col-span-2 sm:col-span-1 text-right">%</span>
+            <span className="col-span-1 text-right hidden lg:block">Market</span>
           </div>
           <div className="max-h-[320px] sm:max-h-[420px] overflow-y-auto custom-scrollbar">
-            {indianEntries.map(e => renderRow(e.ticker, e.market))}
-            {indianEntries.length === 0 && searching && (
+            {filteredList.slice(0, 100).map(s => renderRow(s.ticker))}
+            {filteredList.length === 0 && (
               <div className="text-center py-8 font-mono">
-                <div className="text-[10px] text-slate-500">No match for "{search}" in Nifty 500</div>
+                <div className="text-[10px] text-slate-500">No match for "{search}"</div>
               </div>
             )}
           </div>
@@ -177,57 +189,9 @@ export default function StockMarketList() {
         </div>
       </div>
 
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-3 sm:p-5 backdrop-blur-sm">
-        <div className="flex items-center justify-between mb-3 px-1">
-          <div className="flex items-center gap-2">
-            <span className="h-2.5 w-2.5 rounded-full bg-blue-500 animate-pulse-glow" />
-            <h3 className="text-sm font-bold text-white font-mono flex items-center gap-2">
-              <TerminalIcon name="globe" size={16} className="text-blue-400" />
-              International Stocks — S&P / NYSE / NASDAQ
-            </h3>
-            <span className="text-[9px] text-slate-500 font-mono bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">{intlEntries.length} stocks</span>
-          </div>
-          <span className="text-[8px] text-slate-600 font-mono flex items-center gap-1">
-            <span className={`h-1.5 w-1.5 rounded-full ${feed.dotClass}`} /> {feed.label}
-          </span>
-        </div>
-        <div className="bg-slate-950/40 rounded-xl p-1 sm:p-2">
-          <div className="overflow-x-auto custom-scrollbar">
-          <div className="min-w-[350px] sm:min-w-0">
-          <div className="grid grid-cols-5 sm:grid-cols-7 lg:grid-cols-8 gap-1 sm:gap-2 px-2 sm:px-3 py-1.5 sm:py-2 text-[7px] sm:text-[8px] font-bold text-slate-600 uppercase tracking-wider font-mono border-b border-slate-800/50">
-            <span className="col-span-1">Ticker</span>
-            <span className="col-span-2">Name</span>
-            <span className="col-span-1 text-right">Price</span>
-            <span className="col-span-1 text-right">Change</span>
-            <span className="col-span-1 text-right">%</span>
-            <span className="col-span-1 text-right hidden sm:block">Range</span>
-            <span className="col-span-1 text-right hidden lg:block">Sector</span>
-          </div>
-          <div className="max-h-[320px] sm:max-h-[420px] overflow-y-auto custom-scrollbar">
-            {intlEntries.map(e => renderRow(e.ticker, e.market))}
-            {intlEntries.length === 0 && searching && (
-              <div className="text-center text-[10px] text-slate-500 py-8 font-mono">No international matches</div>
-            )}
-          </div>
-          </div>
-          </div>
-        </div>
-      </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'Indian Advancers', value: indianUp, total: indianWithPrice.length, color: 'text-emerald-400' },
-          { label: 'Indian Decliners', value: indianDown, total: indianWithPrice.length, color: 'text-red-400' },
-          { label: 'Intl Advancers', value: intlUp, total: allEntries.filter(e => e.market === 'INTERNATIONAL').length, color: 'text-emerald-400' },
-          { label: 'Intl Decliners', value: intlDown, total: allEntries.filter(e => e.market === 'INTERNATIONAL').length, color: 'text-red-400' },
-        ].map((item, i) => (
-          <div key={i} className="border border-slate-800 bg-slate-900/10 rounded-xl p-3 text-center">
-            <div className="text-[8px] text-slate-500 uppercase font-mono font-bold">{item.label}</div>
-            <div className={`text-xl font-bold font-mono ${item.color}`}>{item.value}</div>
-            <div className="text-[9px] text-slate-600 font-mono">of {item.total}</div>
-          </div>
-        ))}
-      </div>
+
+
     </div>
   );
 }

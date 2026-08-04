@@ -241,8 +241,16 @@ class LLMDeepAnalyzer:
             return await self._analyze_with_openrouter(prompt)
         
         # No cloud API keys configured
-        print("No cloud LLM API keys configured. LLM analysis unavailable.")
-        return None
+        print("No cloud LLM API keys configured. LLM analysis unavailable. Using structural fallback.")
+        return {
+            "sentiment": "neutral",
+            "confidence": 0.5,
+            "summary": "LLM Analysis unavailable. Default structural fallback applied.",
+            "impact_analysis": {"short_term": "Neutral", "long_term": "Neutral"},
+            "key_factors": ["LLM Unavailable", "Awaiting manual review"],
+            "risk_assessment": "Moderate",
+            "trading_strategy": "Hold / Await signals"
+        }
     
     async def _analyze_with_groq(self, prompt: str) -> Optional[Dict]:
         """Analyze using Groq API (fast, free tier)"""

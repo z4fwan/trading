@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import type { StockPulseReport } from '@/lib/stockPulse/types';
 import { recordStockPulseReport, summarizeLearning } from '@/lib/stockPulse/store';
 import {
@@ -40,12 +40,16 @@ export default function StockPulsePanel() {
   const [html, setHtml] = useState('');
   const [error, setError] = useState('');
   const [loadingIdx, setLoadingIdx] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [serverLearnLine, setServerLearnLine] = useState<string | null>(null);
+  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const runAnalysis = useCallback(async (ticker: string, horizon: number) => {
     setStep('loading');
     setError('');
     setLoadingIdx(0);
+    setElapsed(0);
+    elapsedRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     try {
       const res = await fetch('/api/stock-pulse', {
         method: 'POST',
@@ -61,6 +65,8 @@ export default function StockPulsePanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setStep('ask');
+    } finally {
+      if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
     }
   }, []);
 
@@ -174,7 +180,20 @@ export default function StockPulsePanel() {
             🧠 {serverLearnLine}
           </p>
         )}
-        {error && <p className="text-red-400 text-[10px]">{error}</p>}
+        {error && (
+          <div className="space-y-2">
+            <p className="text-red-400 text-[10px] bg-red-950/30 border border-red-900/50 rounded-lg px-3 py-2">{error}</p>
+            {tickerInput.trim() && (
+              <button
+                type="button"
+                onClick={onSubmit}
+                className="text-[10px] text-orange-400 underline hover:text-orange-300"
+              >
+                Retry {tickerInput.toUpperCase()} analysis
+              </button>
+            )}
+          </div>
+        )}
         <button
           type="button"
           onClick={onSubmit}
@@ -192,12 +211,16 @@ export default function StockPulsePanel() {
   }
 
   if (step === 'loading') {
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const elapsedStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
     return (
       <div className="py-16 px-4 text-center relative rounded-2xl border border-slate-700/50 bg-slate-900/60 backdrop-blur-xl shadow-[0_0_40px_rgba(16,185,129,0.1)] overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-b from-emerald-500/5 to-transparent pointer-events-none" />
         <div className="relative z-10">
           <div className="text-5xl mb-6 animate-bounce">📡</div>
-          <p className="text-emerald-400 font-mono text-[12px] uppercase tracking-widest font-bold mb-8 animate-pulse">Neural Engine Researching…</p>
+          <p className="text-emerald-400 font-mono text-[12px] uppercase tracking-widest font-bold mb-2 animate-pulse">Neural Engine Researching…</p>
+          <p className="text-slate-500 font-mono text-[10px] mb-6">{elapsedStr} elapsed</p>
         <ul className="max-w-md mx-auto text-left space-y-2">
           {RESEARCH_STEPS.map((label, i) => (
             <li

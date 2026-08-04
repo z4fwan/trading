@@ -27,7 +27,11 @@ export default function LiveTickerPrice({
   const q = stocks[ticker];
   const value = q?.price && q.price > 0 ? q.price : fallback;
   if (!value || value <= 0) {
-    return <span className={`text-slate-600 font-mono ${className}`}>—</span>;
+    return (
+      <span className={`inline-flex items-center gap-1 ${className}`}>
+        <span className="h-4 w-12 bg-slate-800 rounded animate-pulse inline-block" />
+      </span>
+    );
   }
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>

@@ -201,11 +201,32 @@ export function extractFeatures(candles: OHLC[]): number[][] {
     const vwap = volSum > 0 ? pvSum / volSum : lastClose;
     const priceVsVwap = vwap > 0 ? (lastClose - vwap) / vwap : 0;
 
-    // Supertrend
-    const stAtr = avg(trueRanges.slice(-10));
-    const hlAvg = (wHighs[wHighs.length - 1] + wLows[wLows.length - 1]) / 2;
-    const superVal = hlAvg + 3 * stAtr;
-    const supertrendDir = lastClose > superVal ? 1 : 0;
+    // Supertrend (ATR multiplier 3, period 10) — standard carry-forward bands.
+    // Previous code only built the UPPER band (hlAvg + 3*ATR) and labelled
+    // every price below it "down" (~always), biasing ML features bearish.
+    const stPeriod = 10;
+    const stMult = 3;
+    let stUpper = 0;
+    let stLower = 0;
+    let stDir = 'up';
+    for (let j = stPeriod; j < len; j++) {
+      const atrJ = avg(trueRanges.slice(j - stPeriod, j));
+      const hlj = (wHighs[j] + wLows[j]) / 2;
+      const upper = hlj + stMult * atrJ;
+      const lower = hlj - stMult * atrJ;
+      const cj = wCloses[j];
+      if (j === stPeriod) {
+        stUpper = upper;
+        stLower = lower;
+        stDir = cj > lower ? 'up' : 'down';
+      } else {
+        stUpper = (stUpper === upper || cj > stUpper) ? upper : stUpper;
+        stLower = (stLower === lower || cj < stLower) ? lower : stLower;
+        if (cj > stLower) stDir = 'up';
+        else if (cj < stUpper) stDir = 'down';
+      }
+    }
+    const supertrendDir = stDir === 'up' ? 1 : 0;
 
     // Support / Resistance
     const lookback = 30;

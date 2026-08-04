@@ -37,6 +37,13 @@ export const INDIAN_MACRO_RSS_FEEDS: { url: string; source: string; skip: string
   { url: googleNewsIndiaRss('RBI OR SEBI OR Nifty OR Sensex OR FII OR rupee when:4h'), source: 'Google News India', skip: ['Google News'] },
   { url: 'https://economictimes.indiatimes.com/markets/rssfeeds/1977021501.cms', source: 'Economic Times', skip: ['Economic Times'] },
   { url: 'https://www.moneycontrol.com/rss/MCtopnews.xml', source: 'Moneycontrol', skip: ['Moneycontrol'] },
+  // Dedicated ORDER_WIN feed — real-time Google News for order wins / contract awards
+  { url: googleNewsIndiaRss('"order worth" OR "bag order" OR "emerging order" OR "contract worth" OR "order win" India NSE stock when:2d'), source: 'Google News India', skip: ['Google News'] },
+  // Dedicated TURNAROUND feed — debt reduction / credit upgrades / turnaround stories
+  { url: googleNewsIndiaRss('"debt reduction" OR "debt repaid" OR "credit upgrade" OR "debt free" India stock when:2d'), source: 'Google News India', skip: ['Google News'] },
+  // PRE-MARKET PREDICTIONS — Stocks to watch, brokerage calls, upgrades, downgrades
+  { url: googleNewsIndiaRss('"stocks to watch" OR "stocks in news" OR "trade setup" India NSE when:12h'), source: 'Pre-Market Radar', skip: ['Google News'] },
+  { url: googleNewsIndiaRss('"brokerage" OR "upgrade" OR "downgrade" OR "buy call" OR "target price" India NSE stock when:12h'), source: 'Brokerage Upgrades', skip: ['Google News'] },
 ];
 
 /** Handles covered by ELITE_OFFICIAL_FEEDS (for docs / health). */

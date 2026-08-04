@@ -13,6 +13,7 @@ import tempfile
 import hashlib
 from datetime import datetime, timedelta
 from typing import AsyncGenerator, Dict, List, Set, Optional
+import yfinance as yf
 
 try:
     from playwright.async_api import async_playwright
@@ -41,8 +42,12 @@ class AnnouncementPoller:
             headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "application/json, text/plain, */*",
+                "Referer": "https://www.bseindia.com/",
+                "Origin": "https://www.bseindia.com",
+                "Accept-Language": "en-US,en;q=0.9",
             },
             timeout=30.0,
+            follow_redirects=True,
         )
         
         self.seen_ids_memory: Set[str] = set()
@@ -133,7 +138,7 @@ class AnnouncementPoller:
                 pass
                 
             print("Initializing NSE session via Playwright...")
-            await page.goto(self.nse_base, timeout=60000)
+            await page.goto(self.nse_base, timeout=10000)
             await asyncio.sleep(2)  # Wait for Cloudflare validation
             await page.close()
             return True
@@ -255,6 +260,8 @@ class AnnouncementPoller:
         # Check if browser/context is still valid
         if not self.browser or not self.context:
             if not await self.init_browser():
+                async for item in self.poll_yfinance_fallback():
+                    yield item
                 return
                 
         # Verify browser is still running
@@ -269,6 +276,8 @@ class AnnouncementPoller:
             self.browser = None
             self.context = None
             if not await self.init_browser():
+                async for item in self.poll_yfinance_fallback():
+                    yield item
                 return
                 
         try:
@@ -365,8 +374,47 @@ class AnnouncementPoller:
         except Exception as e:
             print(f"BSE poll error: {e}")
             self.error_count += 1
-            backoff_time = min(15, 2 ** min(4, self.error_count))
+            # Exponential backoff
+            backoff_time = min(60, 2 ** min(5, self.error_count))
             await asyncio.sleep(backoff_time)
+            
+            # Use fallback during backoff
+            async for item in self.poll_yfinance_fallback():
+                yield item
+
+    async def poll_yfinance_fallback(self) -> AsyncGenerator[Dict, None]:
+        """Fallback to yfinance news when NSE scraping fails"""
+        try:
+            # ^NSEI is Nifty 50. yfinance gives recent market news
+            ticker = yf.Ticker('^NSEI')
+            news = ticker.news
+            if not news: return
+            
+            for item in news[:5]: # recent 5 items
+                content = item.get("content", {})
+                headline = content.get("title", "")
+                if not headline: continue
+                
+                timestamp = content.get("pubDate", "")
+                uid = self._generate_id("YF", "^NSEI", headline, timestamp)
+                
+                if not await self.is_duplicate(uid):
+                    self.nse_count += 1
+                    yield {
+                        "id": uid,
+                        "symbol": "^NSEI",
+                        "company": "Market Update",
+                        "headline": headline,
+                        "full_text": content.get("summary", ""),
+                        "category": "General",
+                        "timestamp": timestamp,
+                        "attachment_url": content.get("canonicalUrl", {}).get("url", ""),
+                        "source": "YahooFinance",
+                        "exchange": "NSE",
+                        "raw_data": item,
+                    }
+        except Exception as e:
+            print(f"YFinance fallback error: {e}")
     
     def get_poll_interval(self) -> int:
         """Get poll interval based on market hours"""

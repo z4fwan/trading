@@ -1,7 +1,6 @@
 import { getEngineState } from '@/lib/engineState';
 import { fetchQuotesFromYahoo } from '@/lib/quoteFetcher';
 import { ensureBackgroundEngine } from '@/lib/ensureEngine';
-import { INDEX_SYMBOLS } from '@/lib/marketConfig';
 
 type SlimQuote = {
   price?: number;
@@ -91,14 +90,6 @@ function mergeLastGood(body: string): string {
       for (const [sym, entry] of Object.entries(data.stocks)) {
         const lastPrice = lastGoodPrices[sym];
         if (lastPrice && (!entry.price || entry.price <= 0)) {
-          entry.price = lastPrice;
-          entry.priceSource = 'sticky-cache';
-        }
-      }
-      for (const sym of INDEX_SYMBOLS) {
-        const entry = data.indices?.[sym];
-        const lastPrice = lastGoodPrices[sym];
-        if (entry && lastPrice && (!entry.price || entry.price <= 0)) {
           entry.price = lastPrice;
           entry.priceSource = 'sticky-cache';
         }

@@ -6,6 +6,7 @@ import { analyzeNewsWithLLM, isLLMConfigured } from './llmIntegration';
 import { sendTelegramMessage, editTelegramMessage } from './telegramBot';
 import { getFullUniverse } from './dynamicUniverse';
 import { getEngineState } from './engineState';
+import { getAssetClass } from './marketConfig';
 import { getPredictionsByTicker, addPrediction } from './predictionStore';
 import { calculateEventProbability } from './probabilityEngine';
 import { verifySource } from './sourceVerificationEngine';
@@ -16,6 +17,8 @@ const BREAKING_KEYWORDS = [
   'declares war', 'military strike', 'nuclear', 'invasion', 'market crash', 'circuit breaker',
   'bank run', 'sovereign default', 'missile strike',
 ];
+
+const notifiedNewsIds = new Set<string>();
 
 function normalizeTickers(raw: string[]): string[] {
   const valid = new Set(getFullUniverse());
@@ -71,6 +74,8 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
 
   // Process sequentially to protect free-tier LLM API rate limits (TPM)
   for (const item of toAnalyze) {
+    if (notifiedNewsIds.has(item.id)) continue;
+    
     try {
       // === LAYER 0: Source Verification Gate ===
       const verification = verifySource(
@@ -158,15 +163,21 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
         }
       }
 
-      // Probability Engine Signal Alert - Send for HIGH IMPACT events
-      const isHighImpact = probResult.signal !== 'IGNORE' && probResult.probability >= 65;
+      // Probability Engine Signal Alert - Send for HIGH IMPACT events.
+      // Strict floor: a news headline alone is a weak signal, so it must clear
+      // a HIGH bar (80%+) and have a live price — otherwise the alert is noise
+      // (e.g. "72% MEDIUM" calls that fire on every press release).
       const verificationScore = (item as any).verificationScore as number | undefined;
-      const isVerifiedHighConfidence = verificationScore && verificationScore >= 70 && probResult.confidence === 'High';
+      const { getLivePrice } = require('./quoteFetcher') as { getLivePrice: (t: string) => number | null };
+      const hasLivePrice = item.tickers.length > 0 && !!getLivePrice(item.tickers[0]);
+      const isHighImpact = probResult.signal !== 'IGNORE' && probResult.probability >= 80 && hasLivePrice;
+      const isVerifiedHighConfidence = verificationScore && verificationScore >= 80 && probResult.confidence === 'High' && hasLivePrice;
       const isCorporateAction = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND', 'EARNINGS_BEAT', 'PROFIT_SURGE', 'ACQUISITION', 'MERGER', 'FDA_APPROVAL', 'DEBT_REDUCTION', 'PROMOTER_BUYING'].includes(analysis.eventType);
       
-      // Send signal if: High probability OR verified high confidence OR corporate action with good score
-      // Extra boost if multi-LLM consensus agrees
-      const shouldSendSignal = isHighImpact || isVerifiedHighConfidence || (isCorporateAction && item.impactScore >= 75);
+      // Send signal only when: high probability (>=80) OR verified high
+      // confidence (>=80) OR a corporate action with a strong impact score.
+      // A bare 65-79% headline NEVER reaches Telegram anymore.
+      const shouldSendSignal = isHighImpact || isVerifiedHighConfidence || (isCorporateAction && item.impactScore >= 85 && hasLivePrice);
       
       if (shouldSendSignal) {
         const signalIcon = probResult.signal.includes('BUY') ? '🟢 ' + probResult.signal : probResult.signal.includes('SELL') ? '🔴 ' + probResult.signal : '🚨 ' + probResult.signal;
@@ -198,9 +209,16 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
           ? `🤖 *Multi-LLM Consensus: ${multiLLMConsensus?.consensusStrength || 'UNKNOWN'}* (${multiLLMConsensus?.voteCount || 0}/${multiLLMConsensus?.totalVotes || 0} LLMs agree)\n` 
           : '';
 
+        const badgeStr = item.region ? `[${item.region === 'INDIAN' ? '🇮🇳 IN' : item.region === 'US' ? '🇺🇸 US' : '🌍 GLOBAL'} MARKET] ` : '';
+        const assetClass = item.region || getAssetClass(item.tickers[0] || '');
+        const assetLabel = assetClass === 'INDIAN' ? '🇮🇳 Indian Stock' : assetClass === 'US' ? '🇺🇸 US Stock' : assetClass === 'CRYPTO' ? '₿ Crypto' : '🌍 Asset';
+        
+        const { getLivePrice } = require('./quoteFetcher');
+        const livePriceStr = item.tickers.length > 0 && getLivePrice(item.tickers[0]) ? ` (Live: ₹${getLivePrice(item.tickers[0]).toFixed(2)})` : '';
+
         const buildMsg = (pRes: typeof probResult) => 
-          `${signalIcon} | Prob: ${pRes.probability}% | Conf: ${pRes.confidence}\n\n` +
-          `*${item.tickers.join(', ')}*\n` +
+          `${badgeStr}${signalIcon} | Prob: ${pRes.probability}% | Conf: ${pRes.confidence}\n\n` +
+          `*${assetLabel}: ${item.tickers.join(', ')}*${livePriceStr}\n` +
           `${item.sentiment} (Event: ${analysis.eventType})\n\n` +
           `${consensusBadge}🎯 *Holding Period: ${holdingPeriod}*\n\n` +
           `Headline: ${item.headline}\n\n` +
@@ -212,10 +230,22 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
         // Phase 2: Async Deep Calculation
         if (sentMsg) {
           setTimeout(async () => {
-            // Simulate fetching deep technicals and historical analogs (2-5s)
-            probInputs.historicalMatchCount = Math.floor(Math.random() * 15);
-            probInputs.historicalWinRate = 45 + Math.random() * 40;
-            probInputs.relativeVolume = 1 + Math.random() * 5;
+            // Fetch real historical performance from predictionStore
+            const { getPredictionsByTicker } = require('./predictionStore');
+            const pastPreds = getPredictionsByTicker(primaryTicker) || [];
+            const resolvedPreds = pastPreds.filter((p: any) => p.resolved);
+            
+            probInputs.historicalMatchCount = resolvedPreds.length;
+            if (resolvedPreds.length > 0) {
+              const wins = resolvedPreds.filter((p: any) => p.result === 'CORRECT').length;
+              probInputs.historicalWinRate = (wins / resolvedPreds.length) * 100;
+            } else {
+              probInputs.historicalWinRate = 0;
+            }
+            
+            // Relative volume could be fetched from liveData, but for now we default to 1.0 
+            // if live data isn't immediately available to avoid random dummy data
+            probInputs.relativeVolume = 1.0;
             
             const p2Result = calculateEventProbability(probInputs);
             const p2Msg = `[UPDATED]\n` + buildMsg(p2Result) + `\n\n*Historical Context:*\nMatches: ${probInputs.historicalMatchCount} | Win-Rate: ${probInputs.historicalWinRate.toFixed(1)}%`;
@@ -231,21 +261,30 @@ export async function enrichNewsWithLLM(items: ClassifiedNewsItem[]): Promise<Cl
              name: primaryTicker,
              source: 'AI_QUANT',
              predictionType: 'HOURLY',
-             direction: analysis.sentiment,
-             bullishProb: analysis.sentiment === 'BULLISH' ? probResult.probability : 100 - probResult.probability,
-             bearishProb: analysis.sentiment === 'BEARISH' ? probResult.probability : 100 - probResult.probability,
-             confidence: probResult.probability,
-             entryPrice: 0,
-             targetPrice: 0,
-             targetDate: new Date(Date.now() + 86400000).toISOString(),
-             expiryDate: new Date(Date.now() + 86400000).toISOString(),
-             expectedVolatility: 0,
-             marketCondition: globalTrend,
-             regime: last?.regime || 'UNKNOWN',
-             taSnapshot: last?.taSnapshot || null,
-             sentimentScore: analysis.sentimentScore,
-             reasoning: analysis.drivers || []
+             direction: probResult.signal === 'BUY_SETUP' || probResult.signal === 'STRONG_BUY_SETUP' || probResult.signal === 'WATCH_PULLBACK' ? 'BULLISH' : 'BEARISH',
+             confidence: parseInt(String(probResult.confidence).replace(/[^0-9]/g, ''), 10) || 75,
+             reasoning: [analysis.reasoning],
+             riskRewardRatio: 1.5,
+             entryPrice: -1,
+             stopLoss: -1,
+             targetPrice: -1,
+             bullishProb: 0.5,
+             bearishProb: 0.5,
+             expectedVolatility: 0.1,
+             marketCondition: 'NEUTRAL',
+             regime: 'NEUTRAL',
+             taSnapshot: null,
+             sentimentScore: 0,
+             targetDate: new Date(Date.now() + 3600000).toISOString(),
+             expiryDate: new Date(Date.now() + 3600000).toISOString()
            });
+        }
+        
+        // Mark as processed
+        notifiedNewsIds.add(item.id);
+        if (notifiedNewsIds.size > 1000) {
+          const first = notifiedNewsIds.values().next().value;
+          if (first != null) notifiedNewsIds.delete(first as string);
         }
       }
 
@@ -336,8 +375,17 @@ export async function processNewsPipeline(raw: ClassifiedNewsItem[]): Promise<{
   }
 
   const items = await enrichNewsWithLLM(raw);
-  const llmEnhanced = items.filter(i => i.llmAnalyzed).length;
-  const macro = detectMacroFromNews(items);
+  // The same announcement is often ingested twice in one cycle (Yahoo-IN news
+  // search + NSE corporate fetcher) with an identical `news-source-headline`
+  // id. Dedup here so engine.newsItems / /api/news never emit duplicate keys.
+  const dedup = new Map<string, ClassifiedNewsItem>();
+  for (const it of items) {
+    if (!it.id) { dedup.set(`anon-${dedup.size}`, it); continue; }
+    if (!dedup.has(it.id)) dedup.set(it.id, it);
+  }
+  const uniqueItems = [...dedup.values()];
+  const llmEnhanced = uniqueItems.filter(i => i.llmAnalyzed).length;
+  const macro = detectMacroFromNews(uniqueItems);
 
-  return { items, macro, llmEnhanced };
+  return { items: uniqueItems, macro, llmEnhanced };
 }

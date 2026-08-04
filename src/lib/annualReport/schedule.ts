@@ -9,7 +9,7 @@ const SENT_KEY = '__quantumAnnualReportSent';
 type SentLog = { fy?: string; monthly?: string; lastDemo?: number };
 
 function getSentLog(): SentLog {
-  const g = globalThis as Record<string, unknown>;
+  const g = globalThis as unknown as Record<string, unknown>;
   if (!g[SENT_KEY]) g[SENT_KEY] = {};
   return g[SENT_KEY] as SentLog;
 }

@@ -1,4 +1,4 @@
-/** Server-side admin session check (matches proxy.ts + login cookie). */
+/** Server-side admin session check (matches middleware.ts + login cookie). */
 
 export function getIstDateParts(now = new Date()): { year: number; month: number; day: number } {
   const fmt = new Intl.DateTimeFormat('en-GB', {

@@ -192,3 +192,71 @@ body {
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 .animate-slide-up { animation: slide-up 0.2s ease-out; }
+
+/* Text Gradient Animation */
+@keyframes text-gradient {
+  to { background-position: -200% center; }
+}
+.animate-text-gradient {
+  background: linear-gradient(to right, #10b981, #34d399, #6ee7b7, #34d399, #10b981);
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: text-gradient 3s linear infinite;
+}
+
+/* Gradient Logo Animation */
+@keyframes logo-shimmer {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.logo-container {
+  position: relative;
+  display: inline-block;
+  background: linear-gradient(to right, #10b981, #34d399, #6ee7b7, #34d399, #10b981);
+  background-size: 200% auto;
+  animation: logo-shimmer 3s ease infinite;
+  mask-image: url('/logo-mask.png');
+  -webkit-mask-image: url('/logo-mask.png');
+  mask-size: contain;
+  -webkit-mask-size: contain;
+  mask-repeat: no-repeat;
+  -webkit-mask-repeat: no-repeat;
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+
+/* Scrollbar utilities */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--background);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.4);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
+}
+
+/* Firefox scrollbar */
+html {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(71, 85, 105, 0.4) var(--background);
+}

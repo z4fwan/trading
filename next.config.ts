@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 
 const csp = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://ff.kis.v2.scr.kaspersky-labs.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://ff.kis.v2.scr.kaspersky-labs.com https://s3.tradingview.com https://www.tradingview.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://ff.kis.v2.scr.kaspersky-labs.com",
   "font-src 'self' https://fonts.gstatic.com data:",
   "connect-src 'self' https://trading-dashboard-backend.onrender.com wss://trading-dashboard-backend.onrender.com https://query1.finance.yahoo.com https://query2.finance.yahoo.com https://query1.yahoofinance.com https://fycxqkgnwqunujlwkmfr.supabase.co ws: wss: https://ff.kis.v2.scr.kaspersky-labs.com",
@@ -10,6 +10,7 @@ const csp = [
   "worker-src 'self' blob:",
   "media-src 'none'",
   "frame-ancestors 'none'",
+  "frame-src 'self' https://s3.tradingview.com https://www.tradingview-widget.com https://www.tradingview.com",
   "form-action 'self'",
   "base-uri 'self'",
 ].join('; ');
@@ -19,7 +20,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: '/(.*)',
+        source: '/_next/static/:path*',
+        headers: [
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+        ],
+      },
+      {
+        source: '/((?!_next/static).*)',
         headers: [
           { key: 'X-Frame-Options', value: 'DENY' },
           { key: 'X-Content-Type-Options', value: 'nosniff' },

@@ -20,10 +20,10 @@ export interface PriceVerificationResult {
 }
 
 export interface GlobalCuesData {
-  usClose: number;
-  asianMarkets: number;
-  giftNifty: number;
-  vix: number;
+  usClose: number | null;
+  asianMarkets: number | null;
+  giftNifty: number | null;
+  vix: number | null;
   timestamp: number;
   usMarketStatus: string;
   asianMarketStatus: string;
@@ -141,10 +141,10 @@ export async function fetchRealGlobalCues(): Promise<GlobalCuesData> {
     const data = await res.json();
 
     const cues: GlobalCuesData = {
-      usClose: data.usClose ?? 0.5,
-      asianMarkets: data.asianMarkets ?? 0.3,
-      giftNifty: data.giftNifty ?? 0.2,
-      vix: data.vix ?? 15,
+      usClose: data.usClose ?? null,
+      asianMarkets: data.asianMarkets ?? null,
+      giftNifty: data.giftNifty ?? null,
+      vix: data.vix ?? null,
       timestamp: now,
       usMarketStatus: data.usMarketStatus ?? 'UNKNOWN',
       asianMarketStatus: data.asianMarketStatus ?? 'UNKNOWN',
@@ -156,10 +156,10 @@ export async function fetchRealGlobalCues(): Promise<GlobalCuesData> {
     return cues;
   } catch {
     const fallback: GlobalCuesData = {
-      usClose: 0.5,
-      asianMarkets: 0.3,
-      giftNifty: 0.2,
-      vix: 15,
+      usClose: null,
+      asianMarkets: null,
+      giftNifty: null,
+      vix: null,
       timestamp: now,
       usMarketStatus: 'UNKNOWN',
       asianMarketStatus: 'UNKNOWN',

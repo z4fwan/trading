@@ -5,14 +5,21 @@ from typing import Dict, Optional
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from paths import DATA_DIR, ensure_data_dirs
+except ImportError:
+    from backend.paths import DATA_DIR, ensure_data_dirs
+
 class ExperimentRegistry:
     """
     Experiment Registry for reproducibility.
     Logs every training run with exact hyperparameters, metrics, and seeds.
     """
-    def __init__(self, db_path: str = "data/experiment_registry.db"):
+    def __init__(self, db_path: str = None):
+        if db_path is None:
+            db_path = str(DATA_DIR / "experiment_registry.db")
         self.db_path = db_path
-        Path("data").mkdir(parents=True, exist_ok=True)
+        ensure_data_dirs()
         self._init_db()
         
     def _init_db(self):

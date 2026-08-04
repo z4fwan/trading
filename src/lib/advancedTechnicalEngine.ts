@@ -198,16 +198,44 @@ export class AdvancedTechnicalEngine {
   private calculateSupertrend(highs: number[], lows: number[], closes: number[]): { value: number; direction: 'UP' | 'DOWN' } {
     const period = 10;
     const multiplier = 3;
-    const atr = this.calculateATR(highs, lows, closes);
-    
-    const basicUpperBand = ((highs[highs.length - 1] + lows[lows.length - 1]) / 2) + (multiplier * atr);
-    const basicLowerBand = ((highs[highs.length - 1] + lows[lows.length - 1]) / 2) - (multiplier * atr);
-    
-    const currentClose = closes[closes.length - 1];
-    const direction = currentClose > basicUpperBand ? 'UP' : currentClose < basicLowerBand ? 'DOWN' : 'UP';
-    
+    const len = Math.min(highs.length, lows.length, closes.length);
+    if (len < period + 1) return { value: closes[len - 1] || 0, direction: 'UP' };
+
+    const trAt = (i: number): number => Math.max(
+      highs[i] - lows[i],
+      i > 0 ? Math.abs(highs[i] - closes[i - 1]) : 0,
+      i > 0 ? Math.abs(lows[i] - closes[i - 1]) : 0,
+    );
+    const avg = (arr: number[]): number => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+
+    // Standard carry-forward Supertrend bands. The previous single-tick check
+    // (close > upper ? UP : close < lower ? DOWN : UP) defaulted everything to
+    // 'UP' and never tracked the trend — it was direction-blind on real data.
+    let stUpper = 0;
+    let stLower = 0;
+    let direction: 'UP' | 'DOWN' = 'UP';
+    for (let i = period; i < len; i++) {
+      const trs: number[] = [];
+      for (let j = i - period; j < i; j++) trs.push(trAt(j));
+      const atrI = avg(trs);
+      const hl = (highs[i] + lows[i]) / 2;
+      const upper = hl + multiplier * atrI;
+      const lower = hl - multiplier * atrI;
+      const close = closes[i];
+      if (i === period) {
+        stUpper = upper;
+        stLower = lower;
+        direction = close > lower ? 'UP' : 'DOWN';
+      } else {
+        stUpper = (stUpper === upper || close > stUpper) ? upper : stUpper;
+        stLower = (stLower === lower || close < stLower) ? lower : stLower;
+        if (close > stLower) direction = 'UP';
+        else if (close < stUpper) direction = 'DOWN';
+      }
+    }
+
     return {
-      value: direction === 'UP' ? basicLowerBand : basicUpperBand,
+      value: direction === 'UP' ? stLower : stUpper,
       direction
     };
   }
@@ -324,7 +352,7 @@ export class AdvancedTechnicalEngine {
     const totalVolume = Object.values(priceVolumes).reduce((a, b) => a + b, 0);
     let cumulativeVolume = 0;
     let vah = poc;
-    let val = poc;
+    const val = poc;
     
     for (const [price, volume] of sortedPrices) {
       cumulativeVolume += volume;

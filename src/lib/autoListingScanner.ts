@@ -8,27 +8,8 @@ const newListings = new Set<string>();
  * In production, this could scrape NSE India or use a news feed API.
  */
 export async function runAutoListingScanner(): Promise<string[]> {
-  console.log('[AutoListing] Running Auto-Listing Scanner for new IPOs...');
-  
-  // Here we would normally make a fetch request to an NSE API endpoint or parse a CSV
-  // For demonstration, let's simulate finding a new ticker occasionally
-  const mockScannedTickers = ['BAJAJHOUSING', 'AADHARHFC']; // Example recent IPOs
-  
-  const newlyAdded: string[] = [];
-  for (const t of mockScannedTickers) {
-    if (!INDIAN_EQUITY_TICKERS.includes(t) && !newListings.has(t)) {
-      newListings.add(t);
-      newlyAdded.push(t);
-    }
-  }
-
-  if (newlyAdded.length > 0) {
-    console.log(`[AutoListing] Scanner discovered ${newlyAdded.length} new tickers: ${newlyAdded.join(', ')}`);
-  } else {
-    console.log('[AutoListing] Scanner found no new listings.');
-  }
-
-  return newlyAdded;
+  // Real NSE IPO scanning not yet available
+  return [];
 }
 
 /**

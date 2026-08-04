@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     { success: true, email: adminEmail, expiresAt, role: 'admin' as const },
     { status: 200 },
   );
-  // Must be readable by client JS (sessionManager) and by proxy — HttpOnly caused login/dashboard redirect loops.
+  // Must be readable by client JS (sessionManager) and by middleware — HttpOnly caused login/dashboard redirect loops.
   res.cookies.set('admin_auth', encodeURIComponent(JSON.stringify(session)), {
     httpOnly: false,
     secure: process.env.NODE_ENV === 'production',
