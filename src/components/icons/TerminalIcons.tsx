@@ -7,7 +7,7 @@ export type IconName =
   | 'shield' | 'list' | 'calendar' | 'search' | 'wallet'
   | 'daily' | 'session' | 'news' | 'crystal' | 'track' | 'gem' | 'signal' | 'bolt' | 'brain' | 'pulse'
   | 'alert' | 'clock' | 'layers' | 'target' | 'book' | 'cpu' | 'activity' | 'globe' | 'india'
-  | 'users' | 'key' | 'monitor' | 'refresh' | 'trash' | 'check' | 'x' | 'link' | 'offline' | 'online' | 'expired';
+  | 'users' | 'key' | 'monitor' | 'refresh' | 'trash' | 'check' | 'x' | 'link' | 'offline' | 'online' | 'expired' | 'settings';
 
 const paths: Record<IconName, React.ReactNode> = {
   dashboard: <><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></>,
@@ -51,6 +51,7 @@ const paths: Record<IconName, React.ReactNode> = {
   offline: <><circle cx="12" cy="12" r="8" /><path d="M9 12l6 6M15 12l-6 6" strokeLinecap="round" /></>,
   online: <><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" fill="currentColor" /></>,
   expired: <><circle cx="12" cy="12" r="8" /><path d="M12 8v4l2 2M8 3l3 3M16 3l-3 3" strokeLinecap="round" /></>,
+  settings: <><circle cx="12" cy="12" r="3" /><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4 4l2 2M18 18l2 2M4 20l2-2M18 6l2-2" strokeLinecap="round" /></>,
 };
 
 export function TerminalIcon({

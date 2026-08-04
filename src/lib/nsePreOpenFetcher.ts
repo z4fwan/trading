@@ -30,7 +30,7 @@ export async function fetchLivePreOpenData(): Promise<PreOpenData[]> {
     };
 
     const req = https.request(options, (res) => {
-      let cookies = res.headers['set-cookie'];
+      const cookies = res.headers['set-cookie'];
       let cookieStr = '';
       if (cookies) {
         cookieStr = cookies.map(c => c.split(';')[0]).join('; ');

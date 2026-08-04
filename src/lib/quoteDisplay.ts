@@ -1,13 +1,14 @@
-import { INDIAN_EQUITY_TICKERS, INTERNATIONAL_TICKERS, isIndianTicker, yahooToTicker } from '@/lib/marketConfig';
+import {
+  INDIAN_EQUITY_TICKERS, isIndianTicker, normalizeTicker,
+} from '@/lib/marketConfig';
 import type { QuoteData } from '@/lib/MarketDataContext';
 
-export type StockMarket = 'INDIAN' | 'INTERNATIONAL';
+export type StockMarket = 'INDIAN' | 'US' | 'FOREIGN' | 'CRYPTO' | 'FOREX';
 
 export function classifyTicker(rawKey: string): { ticker: string; market: StockMarket } | null {
-  const ticker = yahooToTicker(rawKey);
+  const ticker = normalizeTicker(rawKey);
   if (isIndianTicker(ticker)) return { ticker, market: 'INDIAN' };
-  if (INTERNATIONAL_TICKERS.includes(ticker)) return { ticker, market: 'INTERNATIONAL' };
-  return null;
+  return { ticker, market: 'INDIAN' };
 }
 
 /** Effective display price (last close when market is closed). */
@@ -26,7 +27,7 @@ export function hasQuoteData(q: QuoteData | undefined): boolean {
 export function normalizeStocksMap(stocks: Record<string, QuoteData>): Record<string, QuoteData> {
   const out: Record<string, QuoteData> = {};
   for (const [key, data] of Object.entries(stocks)) {
-    const ticker = classifyTicker(key)?.ticker ?? yahooToTicker(key);
+    const ticker = classifyTicker(key)?.ticker ?? normalizeTicker(key);
     const existing = out[ticker];
     const price = quoteDisplayPrice(data);
     const existingPrice = quoteDisplayPrice(existing);
@@ -37,10 +38,9 @@ export function normalizeStocksMap(stocks: Record<string, QuoteData>): Record<st
   return out;
 }
 
-export const ALL_LISTED_TICKERS: { ticker: string; market: StockMarket }[] = [
-  ...INDIAN_EQUITY_TICKERS.map(ticker => ({ ticker, market: 'INDIAN' as const })),
-  ...INTERNATIONAL_TICKERS.map(ticker => ({ ticker, market: 'INTERNATIONAL' as const })),
-];
+const _listedTickerMap = new Map<string, { ticker: string; market: StockMarket }>();
+for (const t of INDIAN_EQUITY_TICKERS) _listedTickerMap.set(t, { ticker: t, market: 'INDIAN' });
+export const ALL_LISTED_TICKERS = [..._listedTickerMap.values()];
 
 export function countPricedStocks(stocks: Record<string, QuoteData>): number {
   const norm = normalizeStocksMap(stocks);

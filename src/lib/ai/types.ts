@@ -23,7 +23,7 @@ export interface AIMemoryPrediction {
   id: string;
   ticker: string;
   name: string;
-  source: 'AI_QUANT' | 'WEEKLY_PREDICTIONS';
+  source: 'AI_QUANT' | 'AI_QUANT_V4' | 'WEEKLY_PREDICTIONS';
   createdAt: number;
   predictionType: 'HOURLY' | 'DAILY' | 'WEEKLY' | 'MONTHLY' | 'CUSTOM';
   direction: 'BULLISH' | 'BEARISH' | 'NEUTRAL';

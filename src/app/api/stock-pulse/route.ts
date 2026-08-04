@@ -12,6 +12,9 @@ import {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+const CACHE_TTL = 10 * 60 * 1000; // 10 min
+const reportCache = new Map<string, { report: any; html: string; ts: number }>();
+
 export async function GET(req: Request) {
   ensureBackgroundEngine();
   const { searchParams } = new URL(req.url);
@@ -66,14 +69,54 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'ticker required' }, { status: 400 });
   }
 
+  // Check cache first
+  const cacheKey = `${ticker}-${horizonYears}`;
+  const cached = reportCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < CACHE_TTL) {
+    return NextResponse.json({ ...cached, cached: true, timestamp: Date.now() });
+  }
+
   try {
-    const raw = await fetchRawFundamentals(ticker);
+    // Parallel fetch Fundamentals and V7 DalalAI Intelligence
+    const pythonApiUrl = `http://127.0.0.1:8000/api/dalalai/pulse/${ticker}`;
+    const [raw, dalalaiRes] = await Promise.all([
+      fetchRawFundamentals(ticker),
+      fetch(pythonApiUrl).catch(() => null)
+    ]);
+    
     if (!raw) {
-      return NextResponse.json({ error: 'Could not fetch fundamentals for this symbol' }, { status: 404 });
+      const indian = ticker.length <= 3 || ticker === ticker.toUpperCase();
+      return NextResponse.json({
+        error: indian
+          ? `Could not fetch fundamentals for ${ticker}. Check the ticker on screener.in — NSE/BSE symbols only (e.g. RELIANCE, HDFCBANK, TCS).`
+          : `Could not find market data for "${ticker}". Try an Indian NSE/BSE ticker.`,
+      }, { status: 404 });
     }
+    
+    let dalalaiData = null;
+    if (dalalaiRes && dalalaiRes.ok) {
+      const parsed = await dalalaiRes.json().catch(() => null);
+      if (parsed && parsed.status === 'success') {
+        dalalaiData = parsed.data;
+      }
+    }
+
     const { report, html } = await buildEnrichedStockPulseReport(raw, horizonYears);
-    return NextResponse.json({ report, html, timestamp: Date.now() });
-  } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    
+    // Inject DalalAI V7 Data into report
+    if (dalalaiData) {
+      report.dalalaiIntelligence = dalalaiData;
+    }
+    
+    reportCache.set(cacheKey, { report, html, ts: Date.now() });
+    return NextResponse.json({ report, html, cached: false, timestamp: Date.now() });
+  } catch (e: any) {
+    const msg = String(e?.message || e);
+    const userMsg = msg.includes('timed out') || msg.includes('AbortError') || msg.includes('Timeout')
+      ? `${ticker}: Yahoo Finance data fetch timed out — market data may be limited for this symbol. Try again or use a different ticker.`
+      : msg.includes('404') || msg.includes('not found')
+        ? `${ticker}: Symbol not found on Yahoo Finance. Check spelling or try an NSE/BSE ticker.`
+        : `${ticker}: Analysis failed — ${msg.slice(0, 200)}`;
+    return NextResponse.json({ error: userMsg }, { status: 500 });
   }
 }

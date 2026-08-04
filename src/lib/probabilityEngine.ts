@@ -12,10 +12,10 @@ export interface ProbabilityInputs {
   sentimentScore: number;
   urgency: number;
   niftyTrend: 'BULLISH' | 'BEARISH' | 'NEUTRAL' | string;
-  sectorStrength: number; // 0-100
-  rsi: number;
-  relativeVolume: number;
-  historicalWinRate: number; // 0-100
+  sectorStrength?: number; // 0-100
+  rsi?: number;
+  relativeVolume?: number;
+  historicalWinRate?: number; // 0-100
   historicalMatchCount: number;
   // New inputs for V2
   relevanceScore?: number; // 0-100 news relevance
@@ -117,13 +117,13 @@ export function calculateEventProbability(inputs: ProbabilityInputs): Probabilit
   // === 2. TECHNICAL SCORE (20% weight) ===
   let technicalScore = 50; // Baseline
   
-  // RSI analysis
-  if (inputs.rsi > 0 && inputs.rsi < 30) {
-    technicalScore += inputs.sentiment === 'BULLISH' ? 15 : -5; // Oversold + bullish = good
-  } else if (inputs.rsi > 70) {
-    technicalScore += inputs.sentiment === 'BEARISH' ? 15 : -10; // Overbought + bearish = good
-  } else if (inputs.rsi > 50 && inputs.rsi < 70) {
-    technicalScore += inputs.sentiment === 'BULLISH' ? 8 : -5; // Momentum zone
+  const rsi = inputs.rsi ?? 50;
+  if (rsi > 0 && rsi < 30) {
+    technicalScore += inputs.sentiment === 'BULLISH' ? 15 : -5;
+  } else if (rsi > 70) {
+    technicalScore += inputs.sentiment === 'BEARISH' ? 15 : -10;
+  } else if (rsi > 50 && rsi < 70) {
+    technicalScore += inputs.sentiment === 'BULLISH' ? 8 : -5;
   }
   
   // Custom technical score override (V2)
@@ -131,37 +131,36 @@ export function calculateEventProbability(inputs: ProbabilityInputs): Probabilit
     technicalScore = inputs.technicalScore;
   }
   
-  // Sector strength
-  if (inputs.sectorStrength > 70) technicalScore += 5;
-  else if (inputs.sectorStrength < 30) technicalScore -= 5;
+  const sectorStrength = inputs.sectorStrength ?? 50;
+  if (sectorStrength > 70) technicalScore += 5;
+  else if (sectorStrength < 30) technicalScore -= 5;
   
   // === 3. HISTORICAL SCORE (18% weight) ===
   let historicalScore = 50;
   
+  const winRate = inputs.historicalWinRate ?? 50;
   if (inputs.historicalMatchCount >= 10) {
-    // High confidence historical data
-    historicalScore = inputs.historicalWinRate;
+    historicalScore = winRate;
   } else if (inputs.historicalMatchCount >= 5) {
-    // Medium confidence
-    historicalScore = (50 * 0.4) + (inputs.historicalWinRate * 0.6);
+    historicalScore = (50 * 0.4) + (winRate * 0.6);
   } else if (inputs.historicalMatchCount > 0) {
-    // Low confidence
-    historicalScore = (50 * 0.6) + (inputs.historicalWinRate * 0.4);
+    historicalScore = (50 * 0.6) + (winRate * 0.4);
   }
   
   // === 4. VOLUME SCORE (15% weight) ===
   let volumeScore = 50;
   
-  if (inputs.relativeVolume > 5.0) {
-    volumeScore = 85; // Exceptional volume
-  } else if (inputs.relativeVolume > 3.0) {
-    volumeScore = 75; // Strong volume
-  } else if (inputs.relativeVolume > 2.0) {
-    volumeScore = 65; // Good volume
-  } else if (inputs.relativeVolume > 1.5) {
-    volumeScore = 55; // Above average
-  } else if (inputs.relativeVolume < 0.5) {
-    volumeScore = 25; // Very low volume (suspicious)
+  const relVol = inputs.relativeVolume ?? 1.0;
+  if (relVol > 5.0) {
+    volumeScore = 85;
+  } else if (relVol > 3.0) {
+    volumeScore = 75;
+  } else if (relVol > 2.0) {
+    volumeScore = 65;
+  } else if (relVol > 1.5) {
+    volumeScore = 55;
+  } else if (relVol < 0.5) {
+    volumeScore = 25;
   }
   
   // === 5. OPTIONS SCORE (12% weight) ===
@@ -216,7 +215,7 @@ export function calculateEventProbability(inputs: ProbabilityInputs): Probabilit
   const evidenceFactors = [
     inputs.historicalMatchCount >= 10 ? 1 : 0,
     inputs.verificationScore && inputs.verificationScore >= 80 ? 1 : 0,
-    inputs.relativeVolume > 2.0 ? 1 : 0,
+    (inputs.relativeVolume ?? 0) > 2.0 ? 1 : 0,
     inputs.urgency > 75 ? 1 : 0,
     inputs.technicalScore && inputs.technicalScore >= 70 ? 1 : 0,
   ];

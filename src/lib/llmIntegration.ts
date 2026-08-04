@@ -59,7 +59,7 @@ ${indiaFirst}
 Your objective is to deeply analyze corporate filings and news to extract structured qualitative features.
 DO NOT generate trading signals or probabilities. Act strictly as a classification engine.
 Classify the event into ONE of these types ("eventType"):
-1. "ORDER_WIN", 2. "CORPORATE_ACTION", 3. "TURNAROUND", 4. "MACRO", 5. "GENERAL".
+1. "ORDER_WIN", 2. "CORPORATE_ACTION", 3. "TURNAROUND", 4. "MACRO", 5. "ANALYST_UPGRADE", 6. "GENERAL".
 
 Provide a confidence level (HIGH/MEDIUM/LOW) based strictly on the clarity and explicitness of the news text.
 Extract drivers with an estimated qualitative weight (e.g., "Government contract (+18)", "Debt reduction (+12)").
@@ -74,7 +74,7 @@ Return ONLY valid JSON:
   "reasoning": "1 sentence summary.",
   "keyEntities": ["entities"],
   "urgency": 0-100,
-  "eventType": "ORDER_WIN" | "CORPORATE_ACTION" | "TURNAROUND" | "MACRO" | "GENERAL",
+  "eventType": "ORDER_WIN" | "CORPORATE_ACTION" | "TURNAROUND" | "MACRO" | "ANALYST_UPGRADE" | "GENERAL",
   "confidenceLevel": "HIGH" | "MEDIUM" | "LOW",
   "drivers": ["Government contract (+18)", "Margin expansion (+10)"],
   "risks": ["Earnings tomorrow (-15)", "Stock already ran up (-10)"],
@@ -94,7 +94,7 @@ Return ONLY valid JSON:
   try {
     const parsed = JSON.parse(content) as any;
     const validSentiments = ['BULLISH', 'BEARISH', 'NEUTRAL'];
-    const validEvents = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND', 'MACRO', 'GENERAL'];
+    const validEvents = ['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND', 'MACRO', 'ANALYST_UPGRADE', 'GENERAL'];
     const validConfidence = ['HIGH', 'MEDIUM', 'LOW'];
     
     const result: LLMNewsAnalysis = {

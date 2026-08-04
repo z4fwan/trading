@@ -1,33 +1,51 @@
+import dns from 'dns';
+dns.setDefaultResultOrder('ipv4first');
+
 import YahooFinance from 'yahoo-finance2';
-import { INDIAN_EQUITY_TICKERS, INTERNATIONAL_TICKERS, INDEX_SYMBOLS, tickerToYahoo } from '@/lib/marketConfig';
+import { INDIAN_EQUITY_TICKERS, tickerToYahoo, INDEX_TICKERS_ARRAY } from '@/lib/marketConfig';
 import { getMarketSummary, isSymbolFrozen, exchangeStatusForSymbol, type MarketSummary } from '@/lib/exchangeHours';
 import { isRenderBandwidthSaver } from '@/lib/renderBandwidth';
 import { getDynamicTickersOnly } from '@/lib/dynamicUniverse';
 
 const INDIAN_SYMBOLS = INDIAN_EQUITY_TICKERS.map(t => tickerToYahoo(t));
-const INTL_SYMBOLS = INTERNATIONAL_TICKERS.map(t => tickerToYahoo(t));
 
 /** Returns all dynamic symbols not in hardcoded sets */
 function getDynamicSymbols() {
   return getDynamicTickersOnly().map(t => tickerToYahoo(t));
 }
 
-let STOCK_SYMBOLS = [...INDIAN_SYMBOLS, ...INTL_SYMBOLS];
-let ALL_SYMBOLS = [...STOCK_SYMBOLS, ...INDEX_SYMBOLS];
+/**
+ * Cap the actively-polled dynamic universe to a rotating window. The dynamic
+ * universe can grow to 1000+ penny/small-cap listings; polling all of them in
+ * the same cycle blows up memory and rate-limits Yahoo, which starves the core
+ * Nifty 500 names and freezes every stock price at 0. A rotating window keeps
+ * full coverage over time at a fraction of the load.
+ */
+const MAX_DYNAMIC_ACTIVE = 150;
+function getActiveDynamicSymbols(): string[] {
+  const dyn = getDynamicSymbols();
+  if (dyn.length <= MAX_DYNAMIC_ACTIVE) return dyn;
+  const offset = (getState().rotateOffset) % dyn.length;
+  const window = dyn.slice(offset, offset + MAX_DYNAMIC_ACTIVE);
+  if (window.length < MAX_DYNAMIC_ACTIVE) {
+    window.push(...dyn.slice(0, MAX_DYNAMIC_ACTIVE - window.length));
+  }
+  return window;
+}
 
-/** Symbols refreshed each quote cycle (fetched in small Yahoo chunks). */
-const ROTATE_BATCH = isRenderBandwidthSaver() ? 32 : process.env.RENDER === 'true' ? 48 : 36;
-/** Yahoo quote() rejects large batches from cloud IPs — keep chunks small. */
-const YAHOO_QUOTE_CHUNK = 12;
-let ROTATE_POOL = ALL_SYMBOLS.filter(s => !INDEX_SYMBOLS.includes(s));
+const ROTATE_BATCH = isRenderBandwidthSaver() ? 32 : process.env.RENDER === 'true' ? 100 : 200;
+const YAHOO_QUOTE_CHUNK = 100;
 /** Ignore sub-penny noise when market is closed (stops flicker). */
 const FROZEN_EPS_RATIO = 0.00005;
-const LIVE_EPS_RATIO = 0.00012;
+const LIVE_EPS_RATIO = 0.000001; // Dramatically lowered to allow every single tick to pass (ultra real-time feel)
 
-let _yh: InstanceType<typeof YahooFinance> | null = null;
+let _yh: any = null;
 function yf() {
-  if (!_yh) _yh = new YahooFinance({ suppressNotices: ['yahooSurvey'] });
-  return _yh!;
+  if (!_yh) {
+    _yh = new (YahooFinance as any)({ suppressNotices: ['yahooSurvey'], validation: { logErrors: false } });
+    
+  }
+  return _yh;
 }
 
 export interface QuoteEntry {
@@ -51,16 +69,43 @@ export interface QuotesResult {
   serverTime: number;
 }
 
-const cache: { stocks: Record<string, QuoteEntry>; indices: Record<string, QuoteEntry> } = {
-  stocks: {},
-  indices: {},
-};
-let rotateOffset = 0;
-let fullSnapshotAt = 0;
-const FULL_SNAPSHOT_INTERVAL = 120_000;
-const FULL_SNAPSHOT_MIN_COVERAGE = 0.65;
-let fullSnapshotPromise: Promise<void> | null = null;
-let warmBootDone = false;
+const QF_KEY = '__quoteFetcher';
+function getState(): {
+  cache: { stocks: Record<string, QuoteEntry>; indices: Record<string, QuoteEntry> };
+  rotateOffset: number;
+  fullSnapshotAt: number;
+  fullSnapshotPromise: Promise<void> | null;
+  warmBootDone: boolean;
+  yahooRateLimitUntil: number;
+  STOCK_SYMBOLS: string[];
+  ALL_SYMBOLS: string[];
+  ROTATE_POOL: string[];
+  tier2Cycle: number;
+  tier3Cycle: number;
+} {
+  const g = globalThis as unknown as Record<string, any>;
+  if (!g[QF_KEY]) {
+    // All stock symbols: Indian + US + International + Crypto + Forex
+    const allStocks = [...INDIAN_SYMBOLS];
+    g[QF_KEY] = {
+      cache: { stocks: {}, indices: {} },
+      rotateOffset: 0,
+      fullSnapshotAt: 0,
+      fullSnapshotPromise: null,
+      warmBootDone: false,
+      yahooRateLimitUntil: 0,
+      STOCK_SYMBOLS: allStocks,
+      ALL_SYMBOLS: [...allStocks],
+      ROTATE_POOL: allStocks,
+      tier2Cycle: 0,
+      tier3Cycle: 0,
+    };
+  }
+  return g[QF_KEY];
+}
+
+const FULL_SNAPSHOT_INTERVAL = 180_000;
+const FULL_SNAPSHOT_MIN_COVERAGE = 0.50;
 
 function resolvePrice(
   q: Record<string, unknown>,
@@ -181,23 +226,25 @@ function mapQuote(raw: Record<string, unknown>, market: MarketSummary): QuoteEnt
 }
 
 function shouldCommit(sym: string, next: QuoteEntry, market: MarketSummary): boolean {
-  const isIndex = INDEX_SYMBOLS.includes(sym);
-  const existing = isIndex ? cache.indices[sym] : cache.stocks[sym];
+  const existing = getState().cache.stocks[sym] || getState().cache.indices[sym];
   if (!existing || existing.price <= 0) return true;
-  if (!isSymbolFrozen(sym, market)) {
-    const rel = Math.abs(next.price - existing.price) / existing.price;
-    if (rel <= LIVE_EPS_RATIO) return false;
-    return true;
+  
+  // Prevent delayed TradingView scanner from overwriting real-time Yahoo data
+  if (next.priceSource === 'tv-scanner' && existing.priceSource !== 'tv-scanner' && existing.priceSource !== 'none') {
+    if (Date.now() - existing.timestamp < 5 * 60 * 1000) {
+      return false;
+    }
   }
 
-  const rel = Math.abs(next.price - existing.price) / existing.price;
-  if (rel <= FROZEN_EPS_RATIO) return false;
-  return true;
+  return next.price !== existing.price || next.change !== existing.change;
 }
 
 function commitEntry(sym: string, entry: QuoteEntry) {
-  if (INDEX_SYMBOLS.includes(sym)) cache.indices[sym] = entry;
-  else cache.stocks[sym] = entry;
+  if (INDEX_TICKERS_ARRAY.includes(sym)) {
+    getState().cache.indices[sym] = entry;
+    return;
+  }
+  getState().cache.stocks[sym] = entry;
 }
 
 function mergeQuotes(quotes: Record<string, unknown>[], market: MarketSummary) {
@@ -215,11 +262,9 @@ function isYahooRateLimitError(err: unknown): boolean {
   return msg.includes('400') || msg.includes('429') || msg.includes('Too Many') || msg.includes('Bad Request');
 }
 
-let yahooRateLimitUntil = 0;
-
 async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promise<number> {
   if (symbols.length === 0) return 0;
-  if (Date.now() < yahooRateLimitUntil) {
+  if (Date.now() < getState().yahooRateLimitUntil) {
     return 0; // Gracefully skip fetching while rate limited
   }
   let merged = 0;
@@ -228,18 +273,44 @@ async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promi
     let ok = false;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const result = await yf().quote(chunk);
+        const origWarn = console.warn;
+        const origError = console.error;
+        const origLog = console.log;
+        console.warn = () => {};
+        console.error = () => {};
+        console.log = () => {};
+        
+        let result;
+        try {
+          result = await yf().quote(chunk);
+        } finally {
+          console.warn = origWarn;
+          console.error = origError;
+          console.log = origLog;
+        }
+        
         const arr = Array.isArray(result) ? result : [result];
         mergeQuotes(arr as Record<string, unknown>[], market);
         merged += arr.length;
         ok = true;
         break;
-      } catch (e) {
+      } catch (e: any) {
+        const msg = String(e);
+        if (msg.includes('FailedYahooValidationError') || e.name === 'FailedYahooValidationError') {
+          // In v4, FailedYahooValidationError contains the partial result that DID parse
+          if (e.result) {
+             const arr = Array.isArray(e.result) ? e.result : [e.result];
+             mergeQuotes(arr as Record<string, unknown>[], market);
+             merged += arr.length;
+          }
+          ok = true;
+          break;
+        }
         if (!isYahooRateLimitError(e)) throw e;
         if (attempt === 2) {
-            console.warn('[quoteFetcher] Yahoo Rate Limit hit (429). Backing off for 60s.');
-            yahooRateLimitUntil = Date.now() + 60000; // Lock for 60 seconds
-            return merged; // Exit early but gracefully
+            console.warn('[quoteFetcher] Yahoo Rate Limit hit (429). Backing off for 10s.');
+            getState().yahooRateLimitUntil = Date.now() + 10000;
+            return merged;
         }
         await new Promise(r => setTimeout(r, 400 * (attempt + 1)));
       }
@@ -252,79 +323,159 @@ async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promi
 }
 
 async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
-  const indianCached = INDIAN_SYMBOLS.filter(s => cache.stocks[s]?.price && cache.stocks[s].price > 0).length;
+  const indianCached = INDIAN_SYMBOLS.filter(s => getState().cache.stocks[s]?.price && getState().cache.stocks[s].price > 0).length;
   const needFull = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE
-    || Date.now() - fullSnapshotAt > FULL_SNAPSHOT_INTERVAL;
+    || Date.now() - getState().fullSnapshotAt > FULL_SNAPSHOT_INTERVAL;
   if (!needFull) return;
 
-  for (let i = 0; i < ALL_SYMBOLS.length; i += YAHOO_QUOTE_CHUNK) {
-    await fetchSymbolBatch(ALL_SYMBOLS.slice(i, i + YAHOO_QUOTE_CHUNK), market);
-    await new Promise(r => setTimeout(r, 100));
+  // Fetch all universes in order: core Indian → active dynamic window
+  const batches = [
+    INDIAN_SYMBOLS,
+    getActiveDynamicSymbols().filter(s => !INDIAN_SYMBOLS.includes(s)),
+  ];
+  for (const syms of batches) {
+    for (let i = 0; i < syms.length; i += YAHOO_QUOTE_CHUNK) {
+      await fetchSymbolBatch(syms.slice(i, i + YAHOO_QUOTE_CHUNK), market);
+      await new Promise(r => setTimeout(r, 100));
+    }
   }
-  fullSnapshotAt = Date.now();
+  getState().fullSnapshotAt = Date.now();
 }
 
 async function warmBootSnapshot(market: MarketSummary): Promise<void> {
-  if (warmBootDone) return;
-  warmBootDone = true;
-  // Only fetch the symbols visible on screen — rest via rotation
-  await fetchSymbolBatch(INDEX_SYMBOLS, market);
-  await fetchSymbolBatch(INTL_SYMBOLS, market);
-  // Top 48 Indian stocks fit in a single rotation batch for fast first paint
-  await fetchSymbolBatch(INDIAN_SYMBOLS.slice(0, 48), market);
+  if (getState().warmBootDone) return;
+  getState().warmBootDone = true;
+  // Priority order: indices → crypto → forex → top US → top international
+  await fetchSymbolBatch(INDIAN_SYMBOLS.slice(0, 50), market);
+}
+
+export async function fetchTradingViewIndia(market: MarketSummary) {
+  try {
+    const res = await fetch(`https://scanner.tradingview.com/india/scan?_=${Date.now()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        columns: ['name', 'close', 'change', 'change_abs', 'high', 'low', 'open', 'volume'],
+        range: [0, 3000],
+        sort: { sortBy: 'volume', sortOrder: 'desc' }
+      }),
+      signal: AbortSignal.timeout(3000),
+      cache: 'no-store'
+    });
+    if (!res.ok) return;
+    const { data } = await res.json();
+    const tracked = new Set([...INDIAN_SYMBOLS, ...getActiveDynamicSymbols()]);
+    for (const item of data) {
+      const tvName = item.d[0];
+      const ticker = tvName + '.NS';
+      if (!tracked.has(ticker)) continue;
+      const price = item.d[1];
+      const changePercent = item.d[2];
+      const change = item.d[3];
+      const high = item.d[4];
+      const low = item.d[5];
+      const open = item.d[6];
+      const volume = item.d[7];
+      
+      const frozen = isSymbolFrozen(ticker, market);
+      const prevClose = price - change;
+      
+      const existing = getState().cache.stocks[ticker] || null;
+      
+      const entry: QuoteEntry = {
+        price, change, changePercent, high, low, open, prevClose, volume,
+        bid: existing ? existing.bid : null, 
+        ask: existing ? existing.ask : null, 
+        marketCap: existing ? existing.marketCap : null, 
+        pe: existing ? existing.pe : null, 
+        dividendYield: existing ? existing.dividendYield : null,
+        name: existing && existing.name && existing.name !== ticker ? existing.name : tvName, 
+        timestamp: Date.now(),
+        priceSource: 'tv-scanner', marketState: frozen ? 'CLOSED' : 'REGULAR', frozen
+      };
+      
+      if (shouldCommit(ticker, entry, market)) {
+        commitEntry(ticker, entry);
+      }
+    }
+  } catch (e) {
+    console.warn('[quoteFetcher] TradingView TV scan failed:', String(e));
+  }
 }
 
 export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
   const t0 = Date.now();
 
-  // Dynamically inject newly discovered tickers
-  const dynamic = getDynamicSymbols();
-  if (dynamic.length > 0) {
-    STOCK_SYMBOLS = [...INDIAN_SYMBOLS, ...INTL_SYMBOLS, ...dynamic];
-    ALL_SYMBOLS = [...STOCK_SYMBOLS, ...INDEX_SYMBOLS];
-    ROTATE_POOL = ALL_SYMBOLS.filter(s => !INDEX_SYMBOLS.includes(s));
+  // Dynamically inject newly discovered tickers (capped to a rotating window so
+  // a runaway dynamic universe can't starve the core Nifty 500 of bandwidth).
+  const activeDynamic = getActiveDynamicSymbols();
+  if (activeDynamic.length > 0) {
+    const s = getState();
+    const safeTickers = [...INDIAN_EQUITY_TICKERS].filter((t: string) => t);
+    const priority = [...INDIAN_EQUITY_TICKERS.slice(0, 20)].filter((t: string) => t);
+    const core = [...INDIAN_EQUITY_TICKERS.slice(20, 150)].filter((t: string) => t);
+    const extra = safeTickers.filter((t: string) => !priority.includes(t) && !core.includes(t));
+    s.STOCK_SYMBOLS = [...INDIAN_SYMBOLS, ...activeDynamic];
+    s.ALL_SYMBOLS = [...s.STOCK_SYMBOLS];
+    s.ROTATE_POOL = s.ALL_SYMBOLS;
   }
 
   const market = getMarketSummary();
 
   // Fast first paint: warm boot popular symbols once.
-  if (!warmBootDone) {
+  if (!getState().warmBootDone) {
     await warmBootSnapshot(market);
   }
   // Never block request path on full snapshot; run in background.
-  if (!fullSnapshotPromise) {
-    const indianCached = INDIAN_SYMBOLS.filter(s => cache.stocks[s]?.price && cache.stocks[s].price > 0).length;
+  if (!getState().fullSnapshotPromise) {
+    const indianCached = INDIAN_SYMBOLS.filter(s => getState().cache.stocks[s]?.price && getState().cache.stocks[s].price > 0).length;
     const needFull = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE
-      || Date.now() - fullSnapshotAt > FULL_SNAPSHOT_INTERVAL;
+      || Date.now() - getState().fullSnapshotAt > FULL_SNAPSHOT_INTERVAL;
     if (needFull) {
-      fullSnapshotPromise = ensureFullSnapshot(market).finally(() => {
-        fullSnapshotPromise = null;
-      });
+      getState().fullSnapshotPromise = ensureFullSnapshot(market)
+        .catch(err => console.warn('[quoteFetcher] Background snapshot failed:', String(err)))
+        .finally(() => {
+          getState().fullSnapshotPromise = null;
+        });
     }
   }
 
-  const batch: string[] = [...INDEX_SYMBOLS];
-  const poolLen = Math.max(1, ROTATE_POOL.length);
-  for (let i = 0; batch.length < INDEX_SYMBOLS.length + ROTATE_BATCH; i++) {
-    const sym = ROTATE_POOL[(rotateOffset + i) % poolLen];
+  // Tier 1: Always fetch
+  const batch: string[] = [...INDIAN_SYMBOLS.slice(0, 20), ...INDEX_TICKERS_ARRAY];
+
+  // Tier 2: Top Indian
+  getState().tier2Cycle = (getState().tier2Cycle + 1) % 2;
+  if (getState().tier2Cycle === 0) {
+    for (const sym of INDIAN_SYMBOLS.slice(20, 100)) {
+      if (!batch.includes(sym)) batch.push(sym);
+    }
+  }
+
+  // Tier 3: Rotating pool of remaining tickers — fills remaining capacity
+  const poolLen = Math.max(1, getState().ROTATE_POOL.length);
+  const tier3Budget = Math.max(0, ROTATE_BATCH * 2 - batch.length);
+  for (let i = 0; batch.length < ROTATE_BATCH * 2 && i < tier3Budget; i++) {
+    const sym = getState().ROTATE_POOL[(getState().rotateOffset + i) % poolLen];
     if (!batch.includes(sym)) batch.push(sym);
   }
-  rotateOffset = (rotateOffset + ROTATE_BATCH) % poolLen;
+  getState().rotateOffset = (getState().rotateOffset + tier3Budget) % poolLen;
 
   if (batch.length > 0) {
     try {
-      await fetchSymbolBatch(batch, market);
+      // Allow Indian symbols in the active batch to be fetched via Yahoo Finance for real-time prices
+      await Promise.all([
+        fetchSymbolBatch(batch, market),
+        fetchTradingViewIndia(market)
+      ]);
     } catch (e) {
       if (!isYahooRateLimitError(e)) throw e;
       // Rate-limited: skip this rotate tick; cache still serves last good prices.
     }
   }
 
-  // Prices come only from Yahoo quote() — same fields Google Finance uses (no 1m chart overlay).
-
   const now = Date.now();
-  const allStocks: Record<string, QuoteEntry> = { ...cache.stocks };
-  for (const sym of STOCK_SYMBOLS) {
+  const allStocks: Record<string, QuoteEntry> = { ...getState().cache.stocks };
+  for (const sym of getState().STOCK_SYMBOLS) {
     if (!allStocks[sym]) {
       allStocks[sym] = {
         price: 0, change: null, changePercent: null,
@@ -336,8 +487,8 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
       };
     }
   }
-  const allIndices: Record<string, QuoteEntry> = { ...cache.indices };
-  for (const sym of INDEX_SYMBOLS) {
+  const allIndices: Record<string, QuoteEntry> = { ...getState().cache.indices };
+  for (const sym of INDEX_TICKERS_ARRAY) {
     if (!allIndices[sym]) {
       allIndices[sym] = {
         price: 0, change: null, changePercent: null,
@@ -356,25 +507,44 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
     timestamp: now,
     serverTime: now,
     market,
-    symbolCount: Object.keys(cache.stocks).length + Object.keys(cache.indices).length,
+    symbolCount: Object.keys(getState().cache.stocks).length + Object.keys(getState().cache.indices).length,
   };
 }
 
 export function getQuoteCacheStats() {
-  const pricedStocks = Object.values(cache.stocks).filter(s => s.price != null && s.price > 0).length;
-  const indianPriced = INDIAN_SYMBOLS.filter(s => (cache.stocks[s]?.price ?? 0) > 0).length;
+  const pricedStocks = Object.values(getState().cache.stocks).filter(s => s.price != null && s.price > 0).length;
+  const indianPriced = INDIAN_SYMBOLS.filter(s => (getState().cache.stocks[s]?.price ?? 0) > 0).length;
   return {
     pricedStocks,
     indianPriced,
     totalIndian: INDIAN_SYMBOLS.length,
-    lastFullSnapshotAt: fullSnapshotAt,
+    totalUS: 0,
+    totalCrypto: 0,
+    totalForex: 0,
+    totalForeign: 0,
+    lastFullSnapshotAt: getState().fullSnapshotAt,
+  };
+}
+
+export function getAllCachedQuotes(): Record<string, QuoteEntry> {
+  return { ...getState().cache.stocks };
+}
+
+export function getMarketContext(): { niftyChangePct: number; sensexChangePct: number; marketPhase: string } {
+  const indices = getState().cache.indices;
+  const nifty = indices['^NSEI'];
+  const sensex = indices['^BSESN'];
+  return {
+    niftyChangePct: nifty?.changePercent ?? 0,
+    sensexChangePct: sensex?.changePercent ?? 0,
+    marketPhase: nifty?.marketState || sensex?.marketState || 'UNKNOWN',
   };
 }
 
 export function getLivePrice(ticker: string): number | null {
   const clean = ticker.trim().toUpperCase();
   if (!clean) return null;
-  const sym = clean.includes('.') || clean.includes('^') || clean.includes('=') ? clean : tickerToYahoo(clean);
-  const entry = cache.stocks[sym] || cache.indices[sym];
+  const sym = clean.includes('.') || clean.includes('^') || clean.includes('=') || clean.includes('-') ? clean : tickerToYahoo(clean);
+  const entry = getState().cache.stocks[sym] || getState().cache.indices[sym];
   return entry?.price || null;
 }

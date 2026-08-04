@@ -5,6 +5,8 @@ import { isEliteSource, isIndianEliteSource } from './eliteSources';
 import { ELITE_OFFICIAL_FEEDS, INDIAN_MACRO_RSS_FEEDS } from './eliteOfficialFeeds';
 import { fetchLiveNSEAnnouncements } from './nseCorporateFetcher';
 import { detectNewsRegion } from './indianMacro';
+import { scanHighImpactSECFilings } from './secEdgarFetcher';
+import { getImminentHighImpactEvents } from './economicCalendar';
 import type { ClassifiedNewsItem } from './engineState';
 
 const seenHeadlines = new Set<string>();
@@ -21,12 +23,28 @@ function sanitizeHeadline(text: string): string {
   return text.replace(/<[^>]*>/g, '').replace(/[<>"'&]/g, c => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;', '&': '&amp;' }[c] || c));
 }
 
+const COMMON_WORDS = new Set(['A', 'IT', 'SO', 'ON', 'TO', 'NOW', 'ALL', 'ARE', 'THE', 'AND', 'TECH', 'FOR', 'CAN', 'HAS', 'ANY', 'OUT', 'NEW', 'SEE', 'BE', 'AM', 'GO', 'DO', 'HE', 'WE', 'AS', 'AT', 'BY', 'IN', 'IS', 'OF', 'OR', 'US', 'UP', 'IF', 'MY', 'NO', 'MA', 'BA', 'V', 'C', 'F', 'O', 'M', 'T', 'X', 'Y', 'Z', 'K', 'J', 'D', 'E', 'G', 'H', 'L', 'N', 'P', 'Q', 'R', 'S', 'U', 'W']);
+
+// Tickers that are also everyday English words — a bare mention is usually a
+// company/proper noun (e.g. "Royal Twinkle STAR Club") rather than the stock.
+// Only treat these as ticker references when they use explicit ticker syntax
+// or sit next to market-context words.
+const AMBIGUOUS_TICKERS = new Set(['STAR', 'RAIN']);
+const TICKER_CONTEXT_RE = /(\bshares?\b|\bstock\b|surge|soar|slump|plunge|tank|rises?|falls?|gains?|loses?|hits?\b|52-week|all-time|high|low|₹|rs\.?|\bnse\b|\bbse\b|target|rating|upgrade|downgrade|dividend|bonus|split|results|earnings|profit|revenue|order|contract|ipo|delist)/i;
+
 /** Match tickers with word boundaries — avoids false hits like V, MA, BA in prose. */
 export function findTickersInText(text: string): string[] {
   const upper = text.toUpperCase();
   const found: string[] = [];
   const fullUniverse = getFullUniverse();
   for (const t of fullUniverse) {
+    if (COMMON_WORDS.has(t) && !text.includes(`$${t}`)) continue;
+    if (AMBIGUOUS_TICKERS.has(t)) {
+      const explicit = text.includes(`$${t}`) ||
+        upper.includes(`${t}.NS`) || upper.includes(`${t}.BO`) ||
+        new RegExp(`[([]${t}[)\\]]`).test(upper);
+      if (!explicit && !TICKER_CONTEXT_RE.test(text)) continue;
+    }
     const re = new RegExp(`(?:^|[^A-Z0-9])${t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[^A-Z0-9]|$)`);
     if (re.test(upper)) found.push(t);
   }
@@ -43,9 +61,12 @@ async function fetchYahooNewsForSymbols(
     const url = `https://query1.finance.yahoo.com/v1/finance/news?symbols=${sampleTickers}&region=${region}&lang=${lang}`;
     const res = await fetch(url, {
       headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(15000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[YahooNews] HTTP ${res.status} for ${region}`);
+      return null;
+    }
     const data = await res.json();
     const rawItems: Record<string, unknown>[] | undefined =
       (Array.isArray(data?.main) ? data.main : undefined) ??
@@ -70,14 +91,20 @@ async function fetchYahooNewsForSymbols(
 }
 
 async function fetchYahooFinanceNews(): Promise<{ headline: string; source: string; tickers: string[]; url?: string }[] | null> {
-  const india = await fetchYahooNewsForSymbols([...NIFTY_50_TICKERS.slice(0, 15), ...INDIAN_EQUITY_TICKERS.slice(0, 15)], 'IN');
-  return india || null;
+  const [india] = await Promise.all([
+    fetchYahooNewsForSymbols([...NIFTY_50_TICKERS.slice(0, 15), ...INDIAN_EQUITY_TICKERS.slice(0, 15)], 'IN'),
+  ]);
+  const combined = [...(india || [])];
+  return combined.length > 0 ? combined : null;
 }
 
 async function fetchRssNews(feedUrl: string, source: string, skipTitlePrefixes: string[]): Promise<{ headline: string; source: string; tickers: string[]; url?: string }[] | null> {
   try {
-    const res = await fetch(feedUrl, { signal: AbortSignal.timeout(6000) });
-    if (!res.ok) return null;
+    const res = await fetch(feedUrl, { signal: AbortSignal.timeout(12000) });
+    if (!res.ok) {
+      if (res.status !== 404) console.warn(`[RSS] ${source} HTTP ${res.status}`);
+      return null;
+    }
     const text = await res.text();
     const items: { headline: string; source: string; tickers: string[]; url?: string }[] = [];
     const titleRegex = /<title[^>]*>([^<]+)<\/title>/gi;
@@ -87,6 +114,7 @@ async function fetchRssNews(feedUrl: string, source: string, skipTitlePrefixes: 
     let m;
     while ((m = titleRegex.exec(text)) !== null) {
       const t = m[1].trim();
+      if (t.includes('Google News') || /site:\w+\.\w+/.test(t) || /when:\d+/.test(t)) continue;
       if (!skipTitlePrefixes.some(p => t.startsWith(p))) titles.push(t);
     }
     while ((m = linkRegex.exec(text)) !== null) {
@@ -116,6 +144,8 @@ function calculateRelevanceScore(headline: string, tickers: string[], source: st
   else if (isIndianEliteSource(source)) score += 25;
   else if (source.includes('Reuters') || source.includes('Bloomberg')) score += 20;
   else if (source.includes('NSE') || source.includes('BSE')) score += 28;
+  else if (source === 'SEC_EDGAR') score += 25; // SEC filings are highly credible
+  else if (source === 'EconCalendar') score += 22; // Scheduled economic events are important
   
   // Ticker specificity (0-20 points)
   if (tickers.length === 1) score += 20; // Highly specific
@@ -128,8 +158,20 @@ function calculateRelevanceScore(headline: string, tickers: string[], source: st
   if (headline.length > 50 && headline.length < 200) score += 10; // Good length
   if (headline.includes(':') || headline.includes('-')) score += 5; // Structured
   
+  // SEC filing type bonus
+  if (source === 'SEC_EDGAR') {
+    if (headline.includes('8-K') || headline.includes('10-K') || headline.includes('10-Q')) score += 15;
+    if (headline.includes('Form 4') || headline.includes('SC 13D')) score += 20; // Insider activity
+  }
+  
+  // Economic event bonus
+  if (source === 'EconCalendar') {
+    if (headline.includes('FOMC') || headline.includes('Interest Rate')) score += 20;
+    if (headline.includes('NFP') || headline.includes('CPI') || headline.includes('GDP')) score += 15;
+  }
+  
   // Keyword analysis (0-10 points)
-  const highImpactKeywords = ['acquisition', 'merger', 'result', 'profit', 'loss', 'order', 'contract', 'approval', 'launch'];
+  const highImpactKeywords = ['acquisition', 'merger', 'result', 'profit', 'loss', 'order', 'contract', 'approval', 'launch', 'fomc', 'rate cut', 'rate hike', 'earnings'];
   const lowImpactKeywords = ['analyst', 'meet', 'call', 'presentation', 'conference'];
   
   const lower = headline.toLowerCase();
@@ -148,9 +190,9 @@ function classifyAndFormat(rawItems: { headline: string; source: string; tickers
     // Calculate relevance score first
     const relevanceScore = calculateRelevanceScore(item.headline, item.tickers, item.source);
     
-    // Skip low-relevance items (below 40)
-    if (relevanceScore < 40) {
-      return null; // Will be filtered out
+    // Skip low-relevance items (below 40, except elite sources always pass)
+    if (relevanceScore < 40 && !isEliteSource(item.source) && !isIndianEliteSource(item.source)) {
+      return null;
     }
     
     // Base impact calculation
@@ -164,7 +206,7 @@ function classifyAndFormat(rawItems: { headline: string; source: string; tickers
     const impactScore = Math.min(98, impactBase + tickerBonus + lengthBonus + indiaBonus + eliteBonus + relevanceBonus);
     const cleanHeadline = item.headline.replace(/[^a-zA-Z0-9]/g, '').slice(0, 50);
     const cleanSource = item.source.replace(/[^a-zA-Z0-9]/g, '');
-    const id = `news-${cleanSource}-${cleanHeadline}-${Date.now()}-${idx}`;
+    const id = `news-${cleanSource}-${cleanHeadline}`;
     
     return {
       id,
@@ -184,8 +226,28 @@ function classifyAndFormat(rawItems: { headline: string; source: string; tickers
   return classifiedNews.filter((item): item is NonNullable<typeof item> => item !== null && item.headline.length > 10);
 }
 
+import fs from 'fs';
+import path from 'path';
+
+function getDynamicAlphaFeeds(): { url: string; source: string; skip: string[] }[] {
+  try {
+    const alphaPath = path.join(process.cwd(), 'data', 'alphaSources.json');
+    if (!fs.existsSync(alphaPath)) return [];
+    const sources = JSON.parse(fs.readFileSync(alphaPath, 'utf-8'));
+    return sources.filter((s: any) => s.reliabilityScore >= 60).map((s: any) => ({
+      url: `https://news.google.com/rss/search?q=site:${s.domain}+stock+(upgrade+OR+buy+OR+target)&hl=en-IN&gl=IN&ceid=IN:en`,
+      source: `[ALPHA] ${s.domain}`,
+      skip: ['Google News']
+    }));
+  } catch {
+    return [];
+  }
+}
+
 const RSS_FEEDS: { url: string; source: string; skip: string[] }[] = [
   ...INDIAN_MACRO_RSS_FEEDS,
+  ...getDynamicAlphaFeeds(),
+  // Disabled US/International/Crypto feeds to focus strictly on Indian markets
 ];
 
 /** Free elite intake: official RSS + Google News per @handle (no paid Twitter API). */
@@ -205,18 +267,30 @@ async function fetchEliteOfficialNews(): Promise<{ headline: string; source: str
 }
 
 export async function fetchClassifiedNews(): Promise<ClassifiedNewsItem[]> {
-  const [yahooNews, eliteNews, nseNews, ...rssResults] = await Promise.all([
+  const [yahooNews, eliteNews, nseNews, econEvents, ...rssResults] = await Promise.all([
     fetchYahooFinanceNews(),
     fetchEliteOfficialNews(),
     fetchLiveNSEAnnouncements(),
+    // Economic calendar: get imminent high-impact events
+    getImminentHighImpactEvents().catch(() => []),
     ...RSS_FEEDS.map(f => fetchRssNews(f.url, f.source, f.skip)),
   ]);
+  const srcCount = [yahooNews, eliteNews, nseNews, false, econEvents.length > 0, ...rssResults].filter(Boolean).length;
+  if (srcCount === 0) console.warn('[NewsFetcher] ALL news sources returned empty — Yahoo, NSE, RSS, SEC, EconCalendar all down');
   const rawItems: { headline: string; source: string; tickers: string[]; url?: string }[] = [];
   if (yahooNews) {
     for (const item of yahooNews) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
   }
   if (nseNews) {
     for (const item of nseNews) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
+  }
+  // Economic calendar events as news items
+  for (const event of econEvents) {
+    rawItems.push({
+      headline: `[${event.impact}] ${event.country} ${event.title}${event.forecast ? ` (Forecast: ${event.forecast}, Previous: ${event.previous})` : ''}`,
+      source: 'EconCalendar',
+      tickers: [], // macro events affect all markets
+    });
   }
   for (const item of eliteNews) {
     rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });

@@ -53,6 +53,10 @@ export default function EndOfDayReport() {
   const partial = todaysResolved.filter(p => p.result === 'PARTIAL').length;
   const todayAccuracy = todaysResolved.length > 0 ? Math.round((correct + partial * 0.5) / todaysResolved.length * 100) : 0;
 
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+
   const isAccumulating = totalPreds === 0;
   if (isAccumulating) {
     return (
@@ -193,8 +197,8 @@ export default function EndOfDayReport() {
                   {metrics.failedPredictions > 0 && (
                     <div className="text-[7px] font-mono text-slate-400 space-y-0.5">
                       <div>• Confidence gap: {metrics.confidenceAccuracyGap.toFixed(1)}% (overconfidence)</div>
-                      <div>• Best sectors: {metrics.bestSectors.slice(0, 2).join(', ') || 'N/A'}</div>
-                      <div>• Weakest sectors: {metrics.weakestSectors.slice(0, 2).join(', ') || 'N/A'}</div>
+                      <div>• Best sectors: {metrics.bestSectors.slice(0, 2).join(', ') || '\u2014'}</div>
+                      <div>• Weakest sectors: {metrics.weakestSectors.slice(0, 2).join(', ') || '\u2014'}</div>
                       <div>• Trend: <span className={metrics.trend === 'IMPROVING' ? 'text-emerald-400' : metrics.trend === 'DECLINING' ? 'text-red-400' : 'text-yellow-400'}>{metrics.trend}</span></div>
                     </div>
                   )}

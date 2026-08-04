@@ -1,8 +1,15 @@
-// === Single source of truth for all market tickers ===
+// === Single source of truth for all market tickers — Global Edition ===
 
 import nifty500Symbols from './nifty500Tickers.json';
+import {
+  ALL_US_EQUITIES, ALL_INTERNATIONAL, ALL_CRYPTO, ALL_FOREX,
+  GLOBAL_INDEX_SYMBOLS, GLOBAL_INDEX_NAMES,
+  CRYPTO_TICKERS, FOREX_TICKERS,
+  SP500_TICKERS, NASDAQ_POPULAR, INTERNATIONAL_EQUITY_TICKERS,
+  SP_MIDCAP400, SP_SMALLCAP600, POPULAR_EXTRA,
+} from './globalUniverse';
 
-/** Nifty 50 benchmark names (priority quotes + history + dashboard index card). */
+// ─── Nifty 50 benchmark (Indian) ─────────────────────────────────────────────
 export const NIFTY_50_TICKERS = [
   'RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'ITC',
   'KOTAKBANK', 'LT', 'WIPRO', 'AXISBANK', 'BAJFINANCE', 'MARUTI', 'TITAN', 'ASIANPAINT',
@@ -22,59 +29,75 @@ export const INDIAN_EQUITY_TICKERS: string[] = [
 ];
 
 /** @deprecated Use INDIAN_EQUITY_TICKERS — kept for backward compatibility. */
-export const NIFTY_TICKERS = INDIAN_EQUITY_TICKERS;
-
-const INDIAN_TICKER_SET = new Set(INDIAN_EQUITY_TICKERS);
-
-export function isIndianTicker(ticker: string): boolean {
-  return INDIAN_TICKER_SET.has(ticker);
-}
-
-export const INDIAN_UNIVERSE_SIZE = INDIAN_EQUITY_TICKERS.length;
-export const INDIAN_UNIVERSE_LABEL = `Nifty 500 (NSE) · ${INDIAN_UNIVERSE_SIZE} stocks`;
-
-// International/US stocks
-export const INTERNATIONAL_TICKERS = [
-  'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'TSLA', 'JPM', 'V', 'JNJ',
-  'WMT', 'PG', 'MA', 'UNH', 'HD', 'AMD', 'PLTR', 'AVGO', 'ORCL', 'CRM',
-  'NFLX', 'ADBE', 'INTC', 'IBM', 'CSCO', 'QCOM', 'TXN', 'AMAT', 'MU', 'DIS',
-  'NKE', 'COST', 'ABNB', 'UBER', 'NOW', 'PYPL', 'SAP', 'ADP', 'LMT', 'BA',
-  'XOM', 'CVX', 'KO', 'PEP', 'MCD', 'GS', 'MS', 'BLK', 'SCHW', 'AXP',
+export const ALL_INDIAN_EQUITIES = [
+  ...INDIAN_EQUITY_TICKERS
 ];
 
-// Index symbols (NSE + BSE + US + Macro)
-export const INDEX_SYMBOLS = ['^NSEI', '^NSEBANK', '^BSESN', '^GSPC', '^IXIC', 'GC=F', 'CL=F', '^INDIAVIX', 'INR=X'];
-export const INDEX_NAMES: Record<string, string> = {
-  '^NSEI': 'NIFTY 50',
-  '^NSEBANK': 'NIFTY BANK',
-  '^BSESN': 'SENSEX',
-  '^GSPC': 'S&P 500',
-  '^IXIC': 'NASDAQ',
-  'GC=F': 'GOLD',
-  'CL=F': 'CRUDE OIL',
-  '^INDIAVIX': 'INDIA VIX',
-  'INR=X': 'USD/INR',
-};
+export const INDIAN_UNIVERSE_SIZE = INDIAN_EQUITY_TICKERS.length;
+export const INDIAN_UNIVERSE_LABEL = `NSE/BSE · ${INDIAN_UNIVERSE_SIZE} Tickers`;
 
-// Yahoo Finance symbol mapping (Indian stocks get .NS suffix on NSE)
+/** @deprecated Use INDIAN_EQUITY_TICKERS — kept for backward compatibility. */
+export const NIFTY_TICKERS = INDIAN_EQUITY_TICKERS;
+
+const INDIAN_SET = new Set(INDIAN_EQUITY_TICKERS);
+
+// ─── Asset Classification ────────────────────────────────────────────────────────
+
+export function isIndianTicker(ticker: string): boolean {
+  return INDIAN_SET.has(ticker) || ticker.endsWith('.NS') || ticker.endsWith('.BO');
+}
+
+export function getAssetClass(ticker: string): 'INDIAN' | 'INDEX' {
+  if (ticker.startsWith('^')) return 'INDEX';
+  return 'INDIAN';
+}
+
+/** Returns a short market badge string for Telegram alerts (e.g. "🇮🇳 IN"). */
+export function getMarketBadge(ticker: string): string {
+  const assetClass = getAssetClass(ticker);
+  const badges: Record<string, string> = {
+    INDIAN: '🇮🇳 IN',
+    INDEX: '📊 IDX'
+  };
+  return badges[assetClass] || '🇮🇳 IN';
+}
+
+/** Returns the market badge for a ticker using its asset class. */
+export function getMarketBadgePlain(assetClass: 'INDIAN' | 'INDEX'): string {
+  if (assetClass === 'INDIAN') return 'IN';
+  return 'IDX';
+}
+
+// ─── Ticker Normalization ──────────────────────────────────────────────────────
+const _yahooToTickerMap: Record<string, string> = {};
+
+for (const t of INDIAN_EQUITY_TICKERS) {
+  // If it already has .NS or .BO, leave it. Otherwise append .NS
+  const yahoo = (t.endsWith('.NS') || t.endsWith('.BO')) ? t : `${t}.NS`;
+  _yahooToTickerMap[yahoo] = t;
+}
+
+export function normalizeTicker(yahooTicker: string): string {
+  return _yahooToTickerMap[yahooTicker] || yahooTicker.replace('.NS', '').replace('.BO', '');
+}
+
 export function tickerToYahoo(ticker: string): string {
-  if (INTERNATIONAL_TICKERS.includes(ticker)) return ticker;
+  if (ticker.startsWith('^')) return ticker;
+  if (ticker.endsWith('.NS') || ticker.endsWith('.BO')) return ticker;
   return `${ticker}.NS`;
 }
 
-const _yahooToTickerMap: Record<string, string> = {};
-for (const t of INDIAN_EQUITY_TICKERS) _yahooToTickerMap[`${t}.NS`] = t;
-for (const t of INTERNATIONAL_TICKERS) _yahooToTickerMap[t] = t;
+// ─── Index Mappings ────────────────────────────────────────────────────────────
+export const INDEX_TICKERS: Record<string, string> = {
+  '^NSEI': 'NIFTY 50',
+  '^NSEBANK': 'NIFTY BANK',
+  '^BSESN': 'BSE SENSEX',
+};
+export const INDEX_TICKERS_ARRAY = Object.keys(INDEX_TICKERS);
 
-export function yahooToTicker(yahooSym: string): string {
-  return _yahooToTickerMap[yahooSym] || yahooSym.replace('.NS', '');
-}
-
-// All tickers combined (Indian Nifty 500 universe + US watchlist)
-export const ALL_TICKERS = [...INDIAN_EQUITY_TICKERS, ...INTERNATIONAL_TICKERS];
-
-// Names for display (Nifty 50 + common names; others fall back to symbol)
+// ─── Display Names ────────────────────────────────────────────────────────────
 export const TICKER_NAMES: Record<string, string> = {
+  // === Indian Nifty 50 ===
   RELIANCE: 'Reliance Industries Ltd',
   TCS: 'Tata Consultancy Services',
   HDFCBANK: 'HDFC Bank Ltd',
@@ -119,61 +142,12 @@ export const TICKER_NAMES: Record<string, string> = {
   HINDUNILVR: 'Hindustan Unilever Ltd',
   NESTLEIND: 'Nestlé India Ltd',
   BRITANNIA: 'Britannia Industries Ltd',
-  DIVISLAB: 'Divi\'s Laboratories Ltd',
-  DRREDDY: 'Dr. Reddy\'s Laboratories',
+  DIVISLAB: "Divi's Laboratories Ltd",
+  DRREDDY: "Dr. Reddy's Laboratories",
   CIPLA: 'Cipla Ltd',
   APOLLOHOSP: 'Apollo Hospitals Enterprise',
   SHRIRAMFIN: 'Shriram Finance Ltd',
-  AAPL: 'Apple Inc',
-  MSFT: 'Microsoft Corporation',
-  GOOGL: 'Alphabet Inc',
-  AMZN: 'Amazon.com Inc',
-  NVDA: 'NVIDIA Corporation',
-  META: 'Meta Platforms Inc',
-  TSLA: 'Tesla Inc',
-  JPM: 'JPMorgan Chase & Co',
-  V: 'Visa Inc',
-  JNJ: 'Johnson & Johnson',
-  WMT: 'Walmart Inc',
-  PG: 'Procter & Gamble Co',
-  MA: 'Mastercard Inc',
-  UNH: 'UnitedHealth Group Inc',
-  HD: 'The Home Depot Inc',
-  AMD: 'Advanced Micro Devices',
-  PLTR: 'Palantir Technologies Inc',
-  AVGO: 'Broadcom Inc',
-  ORCL: 'Oracle Corporation',
-  CRM: 'Salesforce Inc',
-  NFLX: 'Netflix Inc',
-  ADBE: 'Adobe Inc',
-  INTC: 'Intel Corporation',
-  IBM: 'International Business Machines',
-  CSCO: 'Cisco Systems Inc',
-  QCOM: 'Qualcomm Inc',
-  TXN: 'Texas Instruments Inc',
-  AMAT: 'Applied Materials Inc',
-  MU: 'Micron Technology Inc',
-  DIS: 'The Walt Disney Company',
-  NKE: 'Nike Inc',
-  COST: 'Costco Wholesale Corp',
-  ABNB: 'Airbnb Inc',
-  UBER: 'Uber Technologies Inc',
-  NOW: 'ServiceNow Inc',
-  PYPL: 'PayPal Holdings Inc',
-  SAP: 'SAP SE',
-  ADP: 'Automatic Data Processing',
-  LMT: 'Lockheed Martin Corp',
-  BA: 'The Boeing Company',
-  XOM: 'Exxon Mobil Corporation',
-  CVX: 'Chevron Corporation',
-  KO: 'The Coca-Cola Company',
-  PEP: 'PepsiCo Inc',
-  MCD: 'McDonald\'s Corporation',
-  GS: 'Goldman Sachs Group Inc',
-  MS: 'Morgan Stanley',
-  BLK: 'BlackRock Inc',
-  SCHW: 'Charles Schwab Corp',
-  AXP: 'American Express Company',
+  ...INDEX_TICKERS,
 };
 
 export function getTickerName(ticker: string): string {

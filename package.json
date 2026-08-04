@@ -4,32 +4,41 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:python": "cd backend && python main.py",
+    "dev:full": "concurrently \"npm run dev:python\" \"npm run dev\"",
     "build": "next build",
     "start": "node server.js",
+    "start:full": "concurrently \"cd backend && python main.py\" \"node server.js\"",
     "lint": "eslint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.10.3",
-    "@supabase/supabase-js": "^2.106.0",
+    "@supabase/supabase-js": "^2.110.8",
     "dotenv": "^17.4.2",
+    "fancy-canvas": "^2.1.0",
     "idb": "^8.0.3",
     "lightweight-charts": "^4.2.3",
-    "next": "16.2.6",
+    "lucide-react": "^1.27.0",
+    "next": "^16.2.10",
     "node-telegram-bot-api": "^1.1.2",
     "nodemailer": "^8.0.8",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "tsx": "^4.7.1",
-    "yahoo-finance2": "^3.14.1"
+    "ws": "^8.21.1",
+    "yahoo-finance2": "^3.14.3"
   },
   "devDependencies": {
+    "@swc/helpers": "^0.5.23",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/nodemailer": "^8.0.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
+    "concurrently": "^10.0.3",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "^16.2.10",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

@@ -1,6 +1,5 @@
 const fs = typeof window === 'undefined' ? eval("require('fs')") : null;
 const path = typeof window === 'undefined' ? eval("require('path')") : null;
-import { ALL_TICKERS } from './marketConfig';
 import { INDIAN_EQUITY_TICKERS } from './marketConfig';
 
 const DATA_FILE = path ? path.join(process.cwd(), 'src', 'data', 'dynamic_tickers.json') : '';
@@ -54,7 +53,7 @@ export function getDynamicTickersOnly(): string[] {
 
 export function getFullUniverse(): string[] {
   loadDynamicTickers();
-  return Array.from(new Set([...ALL_TICKERS, ...Array.from(dynamicTickersCache)]));
+  return Array.from(new Set([...INDIAN_EQUITY_TICKERS, ...Array.from(dynamicTickersCache)]));
 }
 
 /**
@@ -71,8 +70,9 @@ export function addDynamicTicker(ticker: string): boolean {
   // Ignore indices or malformed strings
   if (cleanTicker.includes('^') || cleanTicker.includes('=') || cleanTicker.length < 2) return false;
 
-  // Check if it already exists
-  if (INDIAN_EQUITY_TICKERS.includes(cleanTicker) || dynamicTickersCache.has(cleanTicker)) {
+  // Check if it already exists in any hardcoded universe
+  if (INDIAN_EQUITY_TICKERS.includes(cleanTicker)
+    || dynamicTickersCache.has(cleanTicker)) {
     return false;
   }
 

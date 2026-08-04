@@ -9,9 +9,12 @@ export interface ClassifiedNewsItem {
   llmImpactLevel?: 'HIGH' | 'MODERATE' | 'LOW';
   llmEventType?: string;
   llmTradingSignal?: 'BUY' | 'SELL' | 'HOLD' | 'IGNORE';
+
   llmExpectedMovementPct?: string;
+  llmHoldingPeriod?: string;
   macroEventId?: string;
 }
+
 
 export interface EngineMacroShock {
   active: boolean;
@@ -76,7 +79,45 @@ export interface EngineHealth {
   stockPulseGemsCached: number;
   marketOfflinePlaybook: string | null;
   lastMarketOfflineAnalysis: number;
+
+  lastSocialSentimentCycle: number;
+  socialSentimentTickers: number;
+  socialSentimentTrending: number;
+  socialSentimentResult: string;
+  lastSECCycle: number;
+  secFilingsCount: number;
+  lastEarningsCycle: number;
+  earningsUpcoming: number;
+  lastEconCalendarCycle: number;
+  econEventsImminent: number;
+  lastCoinGeckoCycle: number;
+  cryptoMarketCap: number;
+  cryptoBTCDominance: number;
+  lastOptionsFlowCycle: number;
+  optionsFlowTickers: number;
+  optionsFlowAlerts: number;
+  lastBacktestCycle: number;
+  backtestStrategies: number;
+  backtestBestWinRate: number;
+  backtestBestStrategy: string;
+  lastQuantCycle: number;
+  quantSignalsGenerated: number;
+  quantActiveStrategies: number;
+  lastRiskCycle: number;
+  riskPositions: number;
+  riskSharpe: number;
+  riskMaxDrawdown: number;
+
+  liveQuantSignals?: unknown[];
+  liveOptionsFlow?: unknown[];
+  liveIntradayCalls?: unknown[];
+  liveIntradayPlan?: unknown;
+  liveRiskData?: unknown;
+  liveBacktestData?: unknown;
+  livePaperTrades?: unknown[];
+  bullScoreSignals?: unknown[];
 }
+
 
 // Global singleton state — shared across all module instances
 const GLOBAL_KEY = '__quantumEngineState';
@@ -113,7 +154,15 @@ function getState(): EngineHealth {
     stockPulseGemsCached: 0,
     marketOfflinePlaybook: null,
     lastMarketOfflineAnalysis: 0,
+
+    lastSocialSentimentCycle: 0, socialSentimentTickers: 0, socialSentimentTrending: 0, socialSentimentResult: '',
+    lastSECCycle: 0, secFilingsCount: 0, lastEarningsCycle: 0, earningsUpcoming: 0, lastEconCalendarCycle: 0, econEventsImminent: 0,
+    lastCoinGeckoCycle: 0, cryptoMarketCap: 0, cryptoBTCDominance: 0, lastOptionsFlowCycle: 0, optionsFlowTickers: 0, optionsFlowAlerts: 0,
+    lastBacktestCycle: 0, backtestStrategies: 0, backtestBestWinRate: 0, backtestBestStrategy: '',
+    lastQuantCycle: 0, quantSignalsGenerated: 0, quantActiveStrategies: 0, lastRiskCycle: 0, riskPositions: 0, riskSharpe: 0, riskMaxDrawdown: 0,
+    liveQuantSignals: [], liveOptionsFlow: [], liveIntradayCalls: [], liveIntradayPlan: null, liveRiskData: {}, liveBacktestData: {}, livePaperTrades: [], bullScoreSignals: [],
   };
+
   g[GLOBAL_KEY] = s;
   return s;
 }
@@ -187,4 +236,54 @@ export function markMarketOfflineAnalysis(playbook: string) {
   const s = getState();
   s.lastMarketOfflineAnalysis = Date.now();
   s.marketOfflinePlaybook = playbook;
+}
+
+
+export function markBullScoreSignals(data: unknown[]) {
+  getState().bullScoreSignals = data as any[];
+}
+
+export function markIntradayCalls(data: any[], plan: any) {
+  const s = getState();
+  s.liveIntradayCalls = data;
+  s.liveIntradayPlan = plan;
+}
+
+export function markOptionsFlow(tickers: number, alerts: number, data: any[]) {
+  const s = getState();
+  s.lastOptionsFlowCycle = Date.now();
+  s.optionsFlowTickers = tickers;
+  s.optionsFlowAlerts = alerts;
+  s.liveOptionsFlow = data;
+}
+
+export function markBacktestCycle(strategies: number, winRate: number, bestStrategy: string, data: any) {
+  const s = getState();
+  s.lastBacktestCycle = Date.now();
+  s.backtestStrategies = strategies;
+  s.backtestBestWinRate = winRate;
+  s.backtestBestStrategy = bestStrategy;
+  s.liveBacktestData = data;
+}
+
+export function markQuantCycle(strategies: number, signals: number, data: any[]) {
+  const s = getState();
+  s.lastQuantCycle = Date.now();
+  s.quantSignalsGenerated = signals;
+  s.quantActiveStrategies = strategies;
+  s.liveQuantSignals = data;
+}
+
+export function markRiskCycle(positions: number, sharpe: number, drawdown: number, data: any) {
+  const s = getState();
+  s.lastRiskCycle = Date.now();
+  s.riskPositions = positions;
+  s.riskSharpe = sharpe;
+  s.riskMaxDrawdown = drawdown;
+  s.liveRiskData = data;
+}
+
+export function setEngineState(loadedState: Partial<EngineHealth>): void {
+  const current = getState();
+  Object.assign(current, loadedState);
 }

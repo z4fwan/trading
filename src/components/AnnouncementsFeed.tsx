@@ -80,6 +80,11 @@ interface Announcement {
   received_at: string;
   flash?: boolean;
   verification?: VerificationResult;
+  sentiment?: string;
+  llmImpactLevel?: string;
+  llmHoldingPeriod?: string | null;
+  verificationScore?: number;
+  verificationSources?: { name: string; confirmed: boolean }[];
 }
 
 interface AnnouncementsFeedProps {
@@ -146,8 +151,12 @@ export default function AnnouncementsFeed({
   }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const wsWasConnectedRef = useRef(false);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const connectRef = useRef<() => void>(() => {});
+  const wsRetriesRef = useRef(0);
+  const MAX_WS_RETRIES = 8;
+  const restPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const formatTime = (timestamp: string) => {
     try {
@@ -205,11 +214,17 @@ export default function AnnouncementsFeed({
   useEffect(() => {
     connectRef.current = () => {
       if (wsRef.current?.readyState === WebSocket.OPEN) return;
+      if (wsRetriesRef.current >= MAX_WS_RETRIES) return;
       
-      const socket = new WebSocket('ws://localhost:8000/ws/announcements');
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const hostname = window.location.hostname;
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${hostname}:8080/ws/announcements`;
+      const socket = new WebSocket(wsUrl);
       wsRef.current = socket;
 
       socket.onopen = () => {
+        wsWasConnectedRef.current = true;
+        wsRetriesRef.current = 0;
         setConnected(true);
         setError(null);
       };
@@ -254,8 +269,10 @@ export default function AnnouncementsFeed({
               data.received_at ? new Date(data.received_at).getTime() : Date.now(),
               'INDIAN'
             );
+            
             setItems(prev => {
               if (prev.some(p => p.id === data.id)) return prev;
+              
               const newItem = {
                 ...data,
                 flash: true,
@@ -265,50 +282,52 @@ export default function AnnouncementsFeed({
                   event_type: mappedType
                 }
               };
-              cacheAnnouncement(newItem);
-              saveAnnouncement(newItem);
               
-              const cat = mappedType || data.category || 'GENERAL';
-              const sig = data.ai_analysis?.trading_signal || data.prediction?.direction || '';
-              toast(
-                sig === 'BUY' || sig === 'STRONG_BUY' ? 'success' :
-                sig === 'SELL' || sig === 'STRONG_SELL' ? 'warning' : 'info',
-                `${data.symbol} — ${cat.replace(/_/g, ' ')}`,
-                data.headline?.slice(0, 120),
-                5000
-              );
-              
-              sendAnnouncementAlert({
-                id: data.id,
-                symbol: data.symbol,
-                company: data.company || data.symbol,
-                headline: data.headline || '',
-                category: cat,
-                ai_analysis: data.ai_analysis,
-                prediction: data.prediction,
-              });
-              
-              setPipelineStats(prev => ({
-                ...prev,
-                telegramSent: prev.telegramSent + 1,
-              }));
-              
+              // We do side effects safely OUTSIDE the setter by using a timeout 
+              // or just relying on the fact that we can do them if we detect it's new.
+              // Actually, since we only want to run side effects if it's new, we can do it asynchronously:
               setTimeout(() => {
-                setItems(current =>
-                  current.map(item =>
-                    item.id === newItem.id ? { ...item, flash: false } : item
-                  )
+                cacheAnnouncement(newItem);
+                saveAnnouncement(newItem);
+                
+                const cat = mappedType || data.category || 'GENERAL';
+                const sig = data.ai_analysis?.trading_signal || data.prediction?.direction || '';
+                toast(
+                  sig === 'BUY' || sig === 'STRONG_BUY' ? 'success' :
+                  sig === 'SELL' || sig === 'STRONG_SELL' ? 'warning' : 'info',
+                  `${data.symbol} — ${cat.replace(/_/g, ' ')}`,
+                  data.headline?.slice(0, 120),
+                  5000
                 );
-              }, 2000);
+                
+                sendAnnouncementAlert({
+                  id: data.id,
+                  symbol: data.symbol,
+                  company: data.company || data.symbol,
+                  headline: data.headline || '',
+                  category: cat,
+                  ai_analysis: data.ai_analysis,
+                  prediction: data.prediction,
+                });
+                
+                setPipelineStats(p => ({
+                  ...p,
+                  telegramSent: p.telegramSent + 1,
+                  fetched: p.fetched + 1,
+                  passedFilters: p.passedFilters + 1
+                }));
+                
+                setTimeout(() => {
+                  setItems(current =>
+                    current.map(item =>
+                      item.id === newItem.id ? { ...item, flash: false } : item
+                    )
+                  );
+                }, 2000);
+              }, 0);
               
               return [newItem, ...prev].slice(0, maxItems);
             });
-            
-            setPipelineStats(prev => ({
-              ...prev,
-              fetched: prev.fetched + 1,
-              passedFilters: prev.passedFilters + 1
-            }));
           }
         } catch (e) {
           console.error("WebSocket parsing error:", e);
@@ -317,22 +336,107 @@ export default function AnnouncementsFeed({
 
       socket.onclose = () => {
         setConnected(false);
-        setError('Connection to V5 Engine lost. Reconnecting...');
-        reconnectTimeoutRef.current = setTimeout(connectRef.current, 5000);
+        wsRetriesRef.current++;
+        if (wsWasConnectedRef.current && wsRetriesRef.current <= MAX_WS_RETRIES) {
+          setError('Connection to V5 Engine lost. Reconnecting...');
+          const delay = Math.min(5000 * Math.pow(1.5, wsRetriesRef.current - 1), 60000);
+          reconnectTimeoutRef.current = setTimeout(connectRef.current, delay);
+        } else if (wsRetriesRef.current > MAX_WS_RETRIES) {
+          setError('Python backend unreachable — REST fallback active');
+        }
       };
 
-      socket.onerror = (err) => {
+      socket.onerror = () => {
         setConnected(false);
-        setError('V5 Engine Connection Error');
+        if (wsWasConnectedRef.current && wsRetriesRef.current <= MAX_WS_RETRIES) {
+          setError('V5 Engine Connection Error');
+        }
       };
     };
 
-    connectRef.current();
+    const mountTimeout = setTimeout(() => {
+      connectRef.current();
+    }, 100);
 
     return () => {
+      clearTimeout(mountTimeout);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (wsRef.current) wsRef.current.close();
+      if (wsRef.current) {
+        wsRef.current.onclose = null; // Prevent reconnect logic on unmount
+        wsRef.current.close();
+      }
+      wsRetriesRef.current = 0;
     };
+  }, [maxItems]);
+
+  // REST fallback polls /api/news regardless of WebSocket state
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await fetch('/api/news');
+        if (!res.ok) return;
+        const data = await res.json();
+        const newsArray = data.news || data;
+        if (Array.isArray(newsArray) && newsArray.length > 0) {
+          const mapped: Announcement[] = newsArray.slice(0, maxItems).map((item: any, index: number) => {
+            const rawEventType = item.v5_intelligence?.event_category || item.llmEventType || 'GENERAL';
+            const corporateTypes = ['ACQUISITION','MERGER','BONUS','SPLIT','DIVIDEND','BUYBACK','EARNINGS_BEAT','EARNINGS_MISS','REVENUE_GROWTH','PROFIT_SURGE','LOSS_WIDEN','FDA_APPROVAL','REGULATORY_CLEARANCE','SEBI_ACTION','TAX_NOTICE','COURT_ORDER','MANAGEMENT_CHANGE','RESIGNATION','APPOINTMENT','BLOCK_DEAL','BULK_DEAL','PROMOTER_BUYING','PROMOTER_SELLING','PLEDGE_CHANGE','NEW_PRODUCT','EXPANSION','JV_ANNOUNCEMENT'];
+            const turnaroundTypes = ['DEBT_REDUCTION','FUND_RAISING','CREDIT_UPGRADE','CREDIT_DOWNGRADE'];
+            const uiCategory = rawEventType === 'ORDER_WIN' ? 'ORDER_WIN' :
+              rawEventType === 'CORPORATE_ACTION' || corporateTypes.includes(rawEventType) ? 'CORPORATE_ACTION' :
+              turnaroundTypes.includes(rawEventType) ? 'TURNAROUND' : rawEventType;
+            return {
+            id: item.id || `${item.ticker || item.symbol}-${Date.now()}-${index}`,
+            symbol: (item.tickers && item.tickers[0]) || item.ticker || item.symbol || '',
+            company: item.company || item.ticker || '',
+            headline: item.headline || '',
+            full_text: item.summary || item.full_text || '',
+            category: uiCategory,
+            announcement_time: new Date(item.timestamp || item.announcement_time || Date.now()).toISOString(),
+            capture_latency_seconds: item.capture_latency_seconds || 0,
+            received_at: new Date(item.timestamp || item.announcement_time || Date.now()).toISOString(),
+            attachment_url: item.attachment_url || '',
+            exchange: item.exchange || (item.source === 'NSE/BSE Corporate' ? 'NSE' : ''),
+            sentiment: item.sentiment || item.ai_analysis?.finbert_sentiment || 'NEUTRAL',
+            llmImpactLevel: item.llmImpactLevel || (item.impactScore > 75 ? 'HIGH' : item.impactScore > 50 ? 'MODERATE' : 'LOW'),
+            verificationScore: item.verificationScore,
+            verificationSources: item.verificationSources,
+            ai_analysis: {
+              finbert_sentiment: item.sentiment || 'NEUTRAL',
+              finbert_confidence: item.v5_intelligence?.forecasts?.prob_1day ? Math.round(item.v5_intelligence.forecasts.prob_1day * 100) : (item.impactScore || 60),
+              llm_sentiment: item.sentiment || 'NEUTRAL',
+              llm_confidence: item.llmConfidence || item.impactScore || 60,
+              llm_reasoning: item.llmReasoning || item.v5_intelligence?.decision_trace?.reasoning || item.headline || '',
+              ensemble_signal: item.llmTradingSignal || (item.sentiment === 'BULLISH' ? 'BUY' : item.sentiment === 'BEARISH' ? 'SELL' : 'IGNORE'),
+              ensemble_confidence: item.v5_intelligence?.forecasts?.prob_1day ? Math.round(item.v5_intelligence.forecasts.prob_1day * 100) : (item.impactScore || 60),
+              event_type: uiCategory,
+              trading_signal: item.llmTradingSignal || (item.sentiment === 'BULLISH' ? 'BUY' : item.sentiment === 'BEARISH' ? 'SELL' : 'IGNORE'),
+              expected_movement_pct: item.llmExpectedMovementPct || (item.v5_intelligence?.forecasts?.expected_return ? `${(item.v5_intelligence.forecasts.expected_return * 100).toFixed(1)}%` : ''),
+            },
+            prediction: item.prediction || { direction: item.sentiment === 'BULLISH' ? 'UP' : item.sentiment === 'BEARISH' ? 'DOWN' : '', expected_range_pct: { min: 0, max: 0 }, time_horizon: '', momentum_score: item.v5_intelligence?.forecasts?.prob_1day ? Math.round(item.v5_intelligence.forecasts.prob_1day * 100) : (item.impactScore || 0), risk_score: 0 },
+            similar_historical: item.similar_historical || { count: 0, avg_1d_change: 0, avg_5d_change: 0, accuracy_rate: 0 },
+            context: item.context || {},
+            v5_intelligence: item.v5_intelligence || {},
+            llmHoldingPeriod: item.llmHoldingPeriod || null,
+            verification: item.verification || null,
+          };
+        });
+          // Guard against duplicate ids (same NSE announcement ingested twice)
+          // so React never renders duplicate keys from this list.
+          const seen = new Set<string>();
+          const uniqueMapped = mapped.filter((m: Announcement) => {
+            if (seen.has(m.id)) return false;
+            seen.add(m.id);
+            return true;
+          });
+          setItems(uniqueMapped);
+          setError(null);
+        }
+      } catch { /* silent */ }
+    };
+    poll();
+    restPollRef.current = setInterval(poll, 15_000);
+    return () => { if (restPollRef.current) clearInterval(restPollRef.current); };
   }, [maxItems]);
 
   const filteredItems = useMemo(() => {
@@ -527,7 +631,7 @@ export default function AnnouncementsFeed({
         </div>
       )}
 
-      <div className="space-y-4 max-h-[700px] overflow-y-auto pr-1 custom-scrollbar">
+      <div className="space-y-4">
         {filteredItems.length === 0 ? (
           <div className="text-center py-12 text-slate-500 font-mono text-xs">
             {connected ? 'Waiting for verified corporate catalysts...' : 'Connecting to feed...'}
@@ -538,7 +642,7 @@ export default function AnnouncementsFeed({
               <h3 className="text-[10px] font-bold text-emerald-400 font-mono tracking-widest uppercase mb-3 pb-1 border-b border-slate-800">
                 Order Wins & Business Growth (For Sudden Price Rallies)
               </h3>
-              <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredItems.filter(i => i.ai_analysis.event_type === 'ORDER_WIN').length === 0 ? (
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for active growth catalysts...</div>
                 ) : (
@@ -567,7 +671,7 @@ export default function AnnouncementsFeed({
               <h3 className="text-[10px] font-bold text-purple-400 font-mono tracking-widest uppercase mb-3 pb-1 border-b border-slate-800">
                 Corporate Action & Inside Confidence (For Institutional Buying)
               </h3>
-              <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredItems.filter(i => i.ai_analysis.event_type === 'CORPORATE_ACTION').length === 0 ? (
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for institutional actions...</div>
                 ) : (
@@ -596,7 +700,7 @@ export default function AnnouncementsFeed({
               <h3 className="text-[10px] font-bold text-amber-400 font-mono tracking-widest uppercase mb-3 pb-1 border-b border-slate-800">
                 Debt & Financial Turnarounds (For Broken/Penny Stocks)
               </h3>
-              <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredItems.filter(i => i.ai_analysis.event_type === 'TURNAROUND').length === 0 ? (
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for turnaround catalysts...</div>
                 ) : (
@@ -625,7 +729,7 @@ export default function AnnouncementsFeed({
               <h3 className="text-[10px] font-bold text-blue-400 font-mono tracking-widest uppercase mb-3 pb-1 border-b border-slate-800">
                 Other High-Impact Signals (Macro / General)
               </h3>
-              <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {filteredItems.filter(i => !['ORDER_WIN', 'CORPORATE_ACTION', 'TURNAROUND'].includes(i.ai_analysis?.event_type || '')).length === 0 ? (
                   <div className="text-slate-700 font-mono text-[9px] italic py-2 col-span-full">Scanning for macro events...</div>
                 ) : (

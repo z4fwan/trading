@@ -13,6 +13,25 @@ interface AlphaCatalyst {
 
 let lastAlphaDate = '';
 
+function sendTelegram(text: string): void {
+  sendTelegramMessage(text).catch(() => {});
+}
+
+function extractOrderWinText(announcement: { headline: string; tickers: string[] }): string | null {
+  const headline = announcement.headline.toUpperCase();
+  const ticker = announcement.tickers[0] || '';
+  if (headline.includes('ORDER')) {
+    // Try to extract a rough price impact estimate from headline keywords
+    const hasWorth = /WORTH\s*(?:₹|RS|INR)?\s*([\d,]+)/i.exec(announcement.headline);
+    const worthStr = hasWorth ? ` Worth ₹${hasWorth[1]}` : '';
+    return `🔔 <b>OVERNIGHT ORDER WIN — ${ticker}</b>${worthStr}
+<b>Headline:</b> ${announcement.headline?.slice(0, 200)}
+<b>Expected:</b> Gap Up +3-7% | Source: NSE/BSE Corporate
+<b>Action:</b> Watch pre-open for confirmation`;
+  }
+  return null;
+}
+
 export async function runPreMarketAlphaCycle(isPreOpenWindow: boolean): Promise<void> {
   const todayDate = new Date().toISOString().split('T')[0];
   
@@ -32,11 +51,25 @@ export async function runPreMarketAlphaCycle(isPreOpenWindow: boolean): Promise<
     return;
   }
 
+  // 1b. Fire individual ORDER_WIN alerts immediately (predictive, before LLM)
+  const orderWinNotified = new Set<string>();
+  for (const ann of validAnnouncements) {
+    const alert = extractOrderWinText(ann);
+    if (!alert) continue;
+    const dedupKey = ann.tickers[0] || ann.headline.slice(0, 30);
+    if (orderWinNotified.has(dedupKey)) continue;
+    orderWinNotified.add(dedupKey);
+    sendTelegram(alert);
+    console.log(`[PreMarket] ORDER_WIN alert sent for ${ann.tickers[0]}`);
+  }
+
   // 2. LLM Catalyst Scoring
   const prompt = `
 Analyze these overnight corporate announcements from the Indian Stock Market.
 Identify the top 1-5 most explosive catalysts that will cause the stock to GAP UP today.
 Focus on: Dividends/Ex-Dates, Clinical Trial Success, Massive Earnings Beats, or Mergers.
+
+Use available terms: DIVIDEND, CLINICAL_TRIAL, EARNINGS, ANALYST_UPGRADE, M&A, OTHER
 
 Announcements:
 ${JSON.stringify(validAnnouncements.slice(0, 30), null, 2)}
@@ -46,9 +79,9 @@ Return strict JSON:
   "picks": [
     {
       "ticker": "RELIANCE",
-      "reasoning": "1 sentence explanation of why this is a massive gap-up catalyst.",
+      "reasoning": "1 sentence explaining the gap-up catalyst.",
       "conviction": 95,
-      "catalystType": "DIVIDEND" | "CLINICAL_TRIAL" | "EARNINGS" | "ANALYST_UPGRADE" | "M&A" | "OTHER"
+      "catalystType": "DIVIDEND"
     }
   ]
 }`;
@@ -72,13 +105,12 @@ Return strict JSON:
       finalPicks = finalPicks.map(pick => {
         const liveData = preOpenMap.get(pick.ticker);
         if (liveData) {
-          // If buy quantity massively outweighs sell quantity, boost conviction
           const buyRatio = liveData.totalBuyQuantity / (liveData.totalSellQuantity || 1);
           if (buyRatio > 2.0) {
             pick.conviction = Math.min(100, pick.conviction + 15);
             pick.reasoning += ` Massive Pre-Open Buy Queue (${(buyRatio).toFixed(1)}x sellers).`;
           } else if (buyRatio < 0.5) {
-            pick.conviction -= 20; // Pre-open contradicts catalyst
+            pick.conviction -= 20;
           }
         }
         return pick;
@@ -89,7 +121,6 @@ Return strict JSON:
     const highConviction = finalPicks.filter(p => p.conviction >= 75).sort((a, b) => b.conviction - a.conviction);
 
     if (highConviction.length > 0) {
-      // Avoid spamming the exact same report twice in one morning unless it's the final 9:07 AM run
       if (lastAlphaDate === todayDate && !isPreOpenWindow) return;
       
       let msg = `🌅 *PRE-MARKET ALPHA REPORT*\n\n`;
@@ -101,7 +132,7 @@ Return strict JSON:
         msg += `Why: ${p.reasoning}\n\n`;
       });
 
-      await sendTelegramMessage(msg);
+      sendTelegram(msg);
       lastAlphaDate = todayDate;
     }
 

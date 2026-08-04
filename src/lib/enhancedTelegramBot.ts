@@ -6,6 +6,7 @@
  */
 
 import TelegramBot from 'node-telegram-bot-api';
+import { getTickerName, getMarketBadge } from './marketConfig';
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID || '';
@@ -76,8 +77,10 @@ function formatEnhancedMessage(signal: EnhancedTradeSignal): string {
     hour: '2-digit', minute: '2-digit', second: '2-digit' 
   });
   
+  const marketBadge = getMarketBadge(signal.ticker);
+
   // Build message
-  let msg = `${signalIcon} *VERIFIED HIGH IMPACT EVENT* ${qualityBadge}\n\n`;
+  let msg = `[${marketBadge} MARKET] ${signalIcon} *VERIFIED HIGH IMPACT EVENT* ${qualityBadge}\n\n`;
   
   // Ticker and Signal
   msg += `*${signal.ticker}* | ${signalText} | Prob: ${signal.probability}%\n`;

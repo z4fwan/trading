@@ -1,7 +1,7 @@
 'use client';
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { type OHLC } from '@/lib/technicalAnalysis';
-import { INDIAN_EQUITY_TICKERS, INTERNATIONAL_TICKERS, INDEX_NAMES, tickerToYahoo, yahooToTicker } from '@/lib/marketConfig';
+import { INDIAN_EQUITY_TICKERS, INDEX_TICKERS, normalizeTicker, tickerToYahoo } from '@/lib/marketConfig';
 import { normalizeStocksMap } from '@/lib/quoteDisplay';
 import { shouldSaveBandwidth } from '@/lib/renderBandwidth';
 import type { MarketSummary } from '@/lib/exchangeHours';
@@ -12,8 +12,7 @@ const PRICE_EPS_RATIO = 0.00005;
 
 function priceMoved(a: number, b: number, streaming = false): boolean {
   if (a <= 0 || b <= 0) return a !== b;
-  const eps = streaming ? 0.00012 : PRICE_EPS_RATIO;
-  return Math.abs(a - b) / a > eps;
+  return a !== b;
 }
 
 export interface QuoteData {
@@ -62,13 +61,16 @@ interface MarketContextValue {
   priceChangeCount: number;
   /** Increments every successful poll (even if prices unchanged) — drives LIVE UI pulse */
   feedPulse: number;
+  engineState: any;
+  /** Live realtime AI predictions pushed over the /ws socket. */
+  alerts: any[];
 }
 
 const MarketContext = createContext<MarketContextValue>({
   stocks: {}, indices: {}, getStock: () => undefined, getIndex: () => undefined,
   getHistory: () => undefined, fetchHistory: async () => undefined, fetchHistoryBatch: async () => undefined, getSessionHL: () => undefined, isLive: false, pricesStreaming: false,
   connectionStatus: 'disconnected', historyLoading: true, market: STATIC_MARKET_PLACEHOLDER,
-  lastFetchAt: 0, dataVersion: 0, priceChangeCount: 0, feedPulse: 0,
+  lastFetchAt: 0, dataVersion: 0, priceChangeCount: 0, feedPulse: 0, engineState: null, alerts: [],
 });
 
 export function useMarketData() {
@@ -84,6 +86,8 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
   const [historyCache, setHistoryCache] = useState<Record<string, OHLC[]>>({});
   const [historyLoading, setHistoryLoading] = useState(true);
   const [market, setMarket] = useState<MarketSummary>(STATIC_MARKET_PLACEHOLDER);
+  const [engineState, setEngineState] = useState<any>(null);
+  const [alerts, setAlerts] = useState<any[]>([]);
 
   useEffect(() => {
     setMarket(getMarketSummary());
@@ -111,13 +115,13 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
     const cached = {} as Record<string, OHLC[]>;
 
     (async () => {
-      const yahooSymbols = priority.map(t => tickerToYahoo(t)).filter(Boolean);
+      const yahooSymbols = priority.map(t => normalizeTicker(t)).filter(Boolean);
       try {
         const res = await fetch(`/api/history/batch?symbols=${yahooSymbols.join(',')}&interval=1d`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
           for (const [sym, result] of Object.entries(data.results as Record<string, { candles: OHLC[] }>)) {
-            const ticker = yahooToTicker(sym);
+            const ticker = normalizeTicker(sym);
             if (result.candles && result.candles.length > 1) {
               cached[ticker] = result.candles;
             }
@@ -139,7 +143,7 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
     let changes = 0;
 
     for (const [yahooSym, info] of Object.entries(data.stocks || {})) {
-      const ticker = yahooToTicker(yahooSym);
+      const ticker = normalizeTicker(yahooSym);
       if (!info || typeof info.price !== 'number') continue;
 
       const priorGood = lastReal.current[ticker]?.price || 0;
@@ -200,7 +204,7 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
         high: info.high || info.price, low: info.low || info.price,
         open: info.open || info.price, prevClose: info.prevClose || info.price,
         volume: info.volume || 0, bid: 0, ask: 0,
-        name: INDEX_NAMES[yahooSym] || yahooSym, timestamp: serverTs,
+        name: INDEX_TICKERS[yahooSym] || yahooSym, timestamp: serverTs,
         priceSource: info.priceSource,
       };
       prevPrices.current[key] = info.price;
@@ -231,8 +235,8 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
             merged[ticker] = { ...prevRow, timestamp: row.timestamp };
             continue;
           }
-          const ySym = tickerToYahoo(ticker);
-          const rowFrozen = isSymbolFrozen(ySym, mkt);
+          const sym = normalizeTicker(ticker);
+          const rowFrozen = isSymbolFrozen(sym, mkt);
           if (prevRow && rowFrozen && !priceMoved(prevRow.price, row.price)) {
             merged[ticker] = { ...prevRow, timestamp: row.timestamp };
             continue;
@@ -297,9 +301,8 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
     }
   }, [applyPayload]);
 
-  // Track SSE connection status to avoid double-fetching
-  const sseConnected = useRef(false);
-  const lastSseData = useRef(0);
+  // Track WS connection status to avoid double-fetching
+  const wsConnected = useRef(false);
 
   useEffect(() => {
     let pollTimer: ReturnType<typeof setInterval>;
@@ -311,14 +314,14 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
     };
     const schedulePoll = () => {
       clearInterval(pollTimer);
-      if (sseConnected.current) {
-        // SSE is active but may go stale if engine fails silently.
-        // Use a slow safety-net poll so we never get stuck on stale data.
+      if (wsConnected.current) {
+        // WS is active. Only run a very slow safety-net poll in case the connection silently hung.
         pollTimer = setInterval(() => {
-          if (Date.now() - lastSseData.current > 20000) fetchQuotes();
+          if (Date.now() - lastFetchAt > 20000) fetchQuotes();
         }, pollMs());
         return;
       }
+      // WS is disconnected, fallback to aggressive REST polling
       const hidden = document.hidden;
       if (bandwidthSaver) {
         pollTimer = setInterval(() => fetchQuotes(), hidden ? 5000 : (getMarketSummary().priceTicksExpected ? 1500 : 3000));
@@ -339,36 +342,49 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
       clearInterval(marketTimer);
       document.removeEventListener('visibilitychange', onVisChange);
     };
-  }, [fetchQuotes]);
+  }, [fetchQuotes, lastFetchAt]);
 
   useEffect(() => {
-    let source: EventSource | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let ws: WebSocket | null = null;
+    let wsRetryTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempts = 0;
 
-    function connect() {
+    function connectWS() {
       try {
-        source = new EventSource(`/api/stream?_${Date.now()}`);
-        source.addEventListener('quote', (e: MessageEvent) => {
-          sseConnected.current = true;
-          lastSseData.current = Date.now();
-          try { applyPayload(JSON.parse(e.data)); } catch (err) { console.warn('[SSE] parse error', err); }
-          reconnectAttempts.current = 0;
-        });
-        source.onerror = () => {
-          sseConnected.current = false;
-          source?.close();
-          const delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts.current));
-          reconnectAttempts.current++;
-          retryTimer = setTimeout(connect, delay);
+        const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${location.host}/ws`);
+        ws.onmessage = (e) => {
+          try {
+            const msg = JSON.parse(e.data);
+            if (msg.type === 'quote' && msg.data) {
+              applyPayload(typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data);
+            } else if (msg.type === 'engine_state' && msg.data) {
+              setEngineState(typeof msg.data === 'string' ? JSON.parse(msg.data) : msg.data);
+            } else if (msg.type === 'alert' && msg.data) {
+              setAlerts(prev => [msg.data, ...prev].slice(0, 50));
+            }
+          } catch { /* parse error */ }
         };
-      } catch { /* SSE unavailable */ }
+        ws.onopen = () => { 
+          wsConnected.current = true; 
+          reconnectAttempts = 0;
+        };
+        ws.onclose = () => {
+          wsConnected.current = false;
+          ws = null;
+          const delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts));
+          reconnectAttempts++;
+          wsRetryTimer = setTimeout(connectWS, delay);
+        };
+        ws.onerror = () => { ws?.close(); };
+      } catch { /* WS unavailable */ }
     }
 
-    connect();
+    connectWS();
     return () => {
-      sseConnected.current = false;
-      source?.close();
-      if (retryTimer) clearTimeout(retryTimer);
+      wsConnected.current = false;
+      ws?.close();
+      if (wsRetryTimer) clearTimeout(wsRetryTimer);
     };
   }, [applyPayload]);
 
@@ -406,9 +422,9 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
           const data = await res.json();
           const newCache: Record<string, OHLC[]> = {};
           for (const [sym, result] of Object.entries(data.results as Record<string, { candles: OHLC[] }>)) {
-            const ticker = yahooToTicker(sym);
+            const t = normalizeTicker(sym);
             if (result.candles && result.candles.length > 1) {
-              newCache[ticker] = result.candles;
+              newCache[t] = result.candles;
             }
           }
           if (Object.keys(newCache).length > 0) {
@@ -427,9 +443,10 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
   const contextValue = useMemo(() => ({
     stocks, indices, getStock, getIndex, getHistory, fetchHistory, fetchHistoryBatch, getSessionHL,
     isLive, pricesStreaming, connectionStatus, historyLoading, market, lastFetchAt, dataVersion, priceChangeCount, feedPulse,
+    engineState, alerts,
   }), [
     stocks, indices, getStock, getIndex, getHistory, fetchHistory, fetchHistoryBatch, getSessionHL,
-    isLive, pricesStreaming, connectionStatus, historyLoading, market, lastFetchAt, dataVersion, priceChangeCount, feedPulse,
+    isLive, pricesStreaming, connectionStatus, historyLoading, market, lastFetchAt, dataVersion, priceChangeCount, feedPulse, engineState, alerts,
   ]);
 
   return (

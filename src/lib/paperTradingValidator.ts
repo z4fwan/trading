@@ -102,6 +102,17 @@ function simulateTrade(
   };
 }
 
+export function getPaperTrades(predictions?: StoredPrediction[]): PaperTrade[] {
+  const resolved = (predictions || getResolvedPredictions())
+    .filter(p => p.resolved && p.actualPrice != null && p.entryPrice > 0);
+  const trades: PaperTrade[] = [];
+  for (let i = 0; i < resolved.length; i++) {
+    const trade = simulateTrade(resolved[i], i);
+    if (trade) trades.push(trade);
+  }
+  return trades;
+}
+
 // === Compute full paper trading stats ===
 export function computePaperTradingStats(predictions?: StoredPrediction[]): PaperTradingStats {
   const resolved = (predictions || getResolvedPredictions())

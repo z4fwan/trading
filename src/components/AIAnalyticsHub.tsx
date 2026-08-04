@@ -22,7 +22,7 @@ import { SentimentHeatmap } from './SentimentHeatmap';
 const StockPulsePanel = dynamic(() => import('@/components/StockPulse/StockPulsePanel'), {
   ssr: false,
   loading: () => (
-    <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-6 text-center text-[10px] text-slate-500 font-mono">
+    <div className="rounded-xl border border-slate-700/50 bg-slate-800/40 p-6 text-center text-xs text-slate-500 font-mono">
       Loading Stock Pulse…
     </div>
   ),
@@ -31,7 +31,7 @@ const StockPulsePanel = dynamic(() => import('@/components/StockPulse/StockPulse
 interface NewsItem { id: string; timestamp: string; source: string; region: string; headline: string; sentiment: string; impactScore: number; }
 
 
-import { INTERNATIONAL_TICKERS, ALL_TICKERS, NIFTY_50_TICKERS, INDIAN_EQUITY_TICKERS, INDIAN_UNIVERSE_LABEL, getTickerName } from '@/lib/marketConfig';
+import { INDIAN_EQUITY_TICKERS, INDIAN_UNIVERSE_LABEL, getTickerName, NIFTY_50_TICKERS } from '@/lib/marketConfig';
 import { addNewsEvents, getNewsFeed, getAggregatedSentiment } from '@/lib/newsStore';
 import { getMarketSession, getSessionTradingSignal, getDayOfWeekSignal } from '@/lib/marketSession';
 import { classifyRegime, getRegimeRecommendation } from '@/lib/regimeClassifier';
@@ -40,14 +40,14 @@ import { useAIWorker, type WorkerResult } from '@/lib/useAIWorker';
 import { useModelWorker, type ModelWorkerResult } from '@/lib/useModelWorker';
 import { getModel, loadModels, saveModels } from '@/lib/mlEngine';
 
-const INTERNATIONAL_PREDICT = INTERNATIONAL_TICKERS.slice(0, 15);
-const PREDICT_ROTATE_BATCH = 48;
+const INTERNATIONAL_PREDICT: string[] = [];
+const PREDICT_ROTATE_BATCH = 100;
 
 function buildPredictionTickerMeta(ticker: string) {
   return {
     ticker,
     name: getTickerName(ticker),
-    timeframe: INTERNATIONAL_TICKERS.includes(ticker) ? '3-6 months' : '6-12 months',
+    timeframe: '6-12 months',
   };
 }
 
@@ -57,7 +57,7 @@ const PREDICTION_CORE_TICKERS = [
   ...INTERNATIONAL_PREDICT,
 ].map(buildPredictionTickerMeta);
 
-const ALL_SCAN_TICKERS = ALL_TICKERS;
+const ALL_SCAN_TICKERS = INDIAN_EQUITY_TICKERS;
 
 function getPrice(stocks: Record<string, QuoteData>, ticker: string, fallback: number): number {
   const s = stocks[ticker];
@@ -74,7 +74,7 @@ function RegimeBadge({ regime }: { regime: string }) {
     BREAKOUT: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
   };
   return (
-    <span className={`text-[7px] font-mono font-bold px-1 py-0.5 rounded border ${colors[regime] || ''}`}>
+    <span className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border ${colors[regime] || ''}`}>
       {regime.replace('_', ' ')}
     </span>
   );
@@ -83,7 +83,7 @@ function RegimeBadge({ regime }: { regime: string }) {
 function ConfidenceBar({ value, label, color }: { value: number; label: string; color?: string }) {
   const barColor = color || (value > 70 ? '#22c55e' : value > 45 ? '#eab308' : '#ef4444');
   return (
-    <div className="flex items-center gap-2 text-[8px] font-mono">
+    <div className="flex items-center gap-2 text-[10px] font-mono">
       <span className="text-slate-500 w-12 shrink-0">{label}</span>
       <div className="flex-1 bg-slate-800 rounded-full h-1.5">
         <div className="h-1.5 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, Math.max(0, value))}%`, background: barColor }} />
@@ -443,13 +443,13 @@ export default function AIAnalyticsHub({
       }
     }
 
-    // Build gems: scan ALL stocks, compute TA, score, rank, show top 6
+    // Build gems: scan 113+ stocks per cycle (core + rotating), compute TA, score, rank, show top 6
     // Uses Web Worker cache when available; falls back to main-thread computation
     const gemResults: { ticker: string; name: string; currentPrice: number; score: number; ta: TAIndicators | null; hasRealData: boolean }[] = [];
     const workerHistories: Record<string, OHLC[]> = {};
     const workerPrices: Record<string, { price: number; volume: number; prevClose: number }> = {};
     const workerSessionHighs: Record<string, { high: number; low: number }> = {};
-    const scanTickers = PREDICTION_CORE_TICKERS.map(p => p.ticker);
+    const scanTickers = cycleTickers.map(p => p.ticker);
     for (const ticker of scanTickers) {
       const price = getPrice(priceMap, ticker, 0);
       if (price <= 0) continue;
@@ -824,14 +824,14 @@ export default function AIAnalyticsHub({
     <>
       <div className={`terminal-panel p-4 sm:p-5 lg:p-6 space-y-5 hover:border-slate-700/60 transition-all duration-500 min-w-0 ${macShock?.active ? 'ring-2 ring-red-500/30' : ''}`}>
       {pulseServerLearning && (
-        <div className="rounded-xl border border-orange-900/40 bg-orange-950/20 px-3 py-2 text-[9px] font-mono text-orange-200/90 leading-relaxed">
+        <div className="rounded-xl border border-orange-900/40 bg-orange-950/20 px-3 py-2 text-xs font-mono text-orange-200/90 leading-relaxed">
           <span className="font-bold text-orange-300">24/7 server learning active</span>
           <span className="text-slate-500"> — no browser needed on Render. Stock Pulse + gems + macro/news run in background.</span>
           {pulseServerBrief && <p className="mt-1.5 text-slate-400 line-clamp-2">{pulseServerBrief}</p>}
         </div>
       )}
 
-      <div className="flex flex-col border-b border-slate-800/80 pb-4 gap-4">
+      <div className="flex flex-col border-b border-slate-700/50/80 pb-4 gap-4">
         <div className="flex items-start sm:items-center gap-3 min-w-0">
           <div className={`h-2.5 w-2.5 rounded-full shrink-0 mt-1 sm:mt-0 ${feed.dotClass} ${pricesStreaming ? 'animate-pulse-glow' : ''}`} />
           <h2 className="text-sm sm:text-base font-bold text-white tracking-tight font-mono flex flex-wrap items-center gap-2 min-w-0">
@@ -839,18 +839,18 @@ export default function AIAnalyticsHub({
               <TerminalIcon name="cpu" size={18} className="text-emerald-400 shrink-0" />
               AI_QUANT_ENGINE
             </span>
-            <span className="text-[8px] font-mono text-emerald-500 bg-emerald-950/30 border border-emerald-900/40 px-1.5 py-0.5 rounded">TA v3.0</span>
-            <span className="text-[7px] font-mono text-orange-400/90 bg-orange-950/30 border border-orange-900/40 px-1.5 py-0.5 rounded hidden sm:inline">{INDIAN_UNIVERSE_LABEL}</span>
+            <span className="text-[10px] font-mono text-emerald-500 bg-emerald-950/30 border border-emerald-900/40 px-1.5 py-0.5 rounded">TA v3.0</span>
+            <span className="text-[10px] font-mono text-orange-400/90 bg-orange-950/30 border border-orange-900/40 px-1.5 py-0.5 rounded hidden sm:inline">{INDIAN_UNIVERSE_LABEL}</span>
             {backtestStats.total > 0 && (
-              <span className={`text-[8px] font-mono px-1.5 py-0.5 rounded border ${backtestStats.accuracy > 60 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'}`}>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${backtestStats.accuracy > 60 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'}`}>
                 {backtestStats.accuracy.toFixed(0)}% live
               </span>
             )}
-            {lastUpdated && <span className="text-[7px] text-slate-600 font-mono">↻ {lastUpdated}</span>}
+            {lastUpdated && <span className="text-[10px] text-slate-600 font-mono">↻ {lastUpdated}</span>}
           </h2>
         </div>
         <div
-          className="tab-scroll scrollbar-none w-full bg-slate-950/80 p-2 border border-slate-800 rounded-xl lg:grid lg:grid-cols-5 xl:grid-cols-10 lg:gap-1.5 lg:overflow-visible"
+          className="tab-scroll scrollbar-none w-full bg-slate-800/80 p-2 border border-slate-700/50 rounded-xl lg:grid lg:grid-cols-5 xl:grid-cols-10 lg:gap-1.5 lg:overflow-visible"
           role="tablist"
           aria-label="AI Analytics modules"
         >
@@ -871,7 +871,7 @@ export default function AIAnalyticsHub({
                 aria-controls={`panel-${tab.key}`}
               >
                 <TerminalIcon name={tab.icon} size={18} className={active ? 'text-emerald-400' : 'text-slate-500'} />
-                <span className="text-[8px] sm:text-[9px] font-bold leading-tight text-center whitespace-nowrap">{tab.label}</span>
+                <span className="text-[10px] sm:text-xs font-bold leading-tight text-center whitespace-nowrap">{tab.label}</span>
               </button>
             );
           })}
@@ -898,16 +898,16 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="NEWS" activeModule={activeModule}>
         <div className="space-y-3">
           <div className="flex justify-between items-center px-1">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">
               📡 AI Market Feed — AI-Generated News Analysis
             </span>
-            <span className={`flex items-center gap-1.5 text-[9px] font-mono px-2 py-0.5 border rounded-full ${feed.badgeClass}`}>
+            <span className={`flex items-center gap-1.5 text-xs font-mono px-2 py-0.5 border rounded-full ${feed.badgeClass}`}>
               <span className={`h-1.5 w-1.5 rounded-full ${feed.dotClass}`} />
               {feed.label}
             </span>
           </div>
           {newsError && (
-            <div className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-[9px] font-mono text-red-300">
+            <div className="rounded-lg border border-red-500/30 bg-red-950/30 px-3 py-2 text-xs font-mono text-red-300">
               News API unavailable — retrying automatically…
             </div>
           )}
@@ -917,13 +917,13 @@ export default function AIAnalyticsHub({
             <SentimentHeatmap sentimentByTicker={newsSentimentByTicker} />
           </div>
           {movers.length > 0 && (
-            <div className="rounded-xl border border-slate-800 bg-slate-950/50 p-3">
-              <div className="text-[8px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-2">Top price movers (live)</div>
+            <div className="rounded-xl border border-slate-700/50 bg-slate-800/50 p-3">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-2">Top price movers (live)</div>
               <div className="flex flex-wrap gap-2">
                 {movers.slice(0, 10).map(m => (
                   <span
                     key={m.ticker}
-                    className={`text-[8px] font-mono px-2 py-1 rounded border ${m.pct >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}
+                    className={`text-[10px] font-mono px-2 py-1 rounded border ${m.pct >= 0 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}
                   >
                     {m.ticker} {m.pct >= 0 ? '+' : ''}{m.pct.toFixed(1)}%
                   </span>
@@ -933,19 +933,19 @@ export default function AIAnalyticsHub({
           )}
           <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1 custom-scrollbar">
             {newsFeed.map((item) => (
-              <div key={item.id} className="p-3.5 border border-slate-800/80 bg-slate-950/40 rounded-xl transition-all duration-300 hover:bg-slate-950/70 hover:border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div key={item.id} className="p-3.5 border border-slate-700/50/80 bg-slate-800/40 rounded-xl transition-all duration-300 hover:bg-slate-800/70 hover:border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[9px] font-mono text-slate-500 bg-slate-900 border border-slate-800 px-1.5 py-0.5 rounded">{item.timestamp}</span>
-                    <span className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded-full ${item.region === 'INDIAN' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>{item.region}</span>
-                    <span className="text-[9px] font-semibold text-slate-500 font-mono">{item.source}</span>
-                    <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded ${item.sentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400' : item.sentiment === 'BEARISH' ? 'bg-red-500/10 text-red-400' : 'bg-slate-500/10 text-slate-400'}`}>{item.sentiment}</span>
+                    <span className="text-xs font-mono text-slate-500 bg-slate-800 border border-slate-700/50 px-1.5 py-0.5 rounded">{item.timestamp}</span>
+                    <span className={`text-xs font-bold font-mono px-1.5 py-0.5 rounded-full ${item.region === 'INDIAN' ? 'bg-orange-500/10 text-orange-400 border border-orange-500/20' : 'bg-blue-500/10 text-blue-400 border border-blue-500/20'}`}>{item.region}</span>
+                    <span className="text-xs font-semibold text-slate-500 font-mono">{item.source}</span>
+                    <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${item.sentiment === 'BULLISH' ? 'bg-emerald-500/10 text-emerald-400' : item.sentiment === 'BEARISH' ? 'bg-red-500/10 text-red-400' : 'bg-slate-500/10 text-slate-400'}`}>{item.sentiment}</span>
                   </div>
                   <p className="text-xs font-medium text-slate-200 leading-relaxed">{item.headline}</p>
                 </div>
                 <div className="flex items-center gap-3 shrink-0 self-end md:self-center">
                   <div className="text-right">
-                    <div className="text-[8px] font-mono uppercase text-slate-600 font-bold">Impact</div>
+                    <div className="text-[10px] font-mono uppercase text-slate-600 font-bold">Impact</div>
                     <div className="text-xs font-mono font-bold text-white">{Math.min(100, Math.max(0, item.impactScore))}/100</div>
                     <div className="w-full bg-slate-800 rounded-full h-1 mt-0.5">
                       <div className={`h-1 rounded-full transition-all duration-700 ${item.impactScore > 75 ? 'bg-emerald-500' : item.impactScore > 50 ? 'bg-yellow-500' : 'bg-slate-500'}`} style={{ width: `${item.impactScore}%` }} />
@@ -962,11 +962,11 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="PREDICTIONS" activeModule={activeModule}>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">
               🔮 Multi-Factor AI Predictions — Real TA
             </span>
             {marketCondition && (
-              <span className={`text-[7px] font-mono font-bold px-2 py-0.5 rounded-full border ${
+              <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-full border ${
                 marketCondition.regime === 'STRONG_BULLISH' || marketCondition.regime === 'BULLISH' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-900/40' :
                 marketCondition.regime === 'STRONG_BEARISH' || marketCondition.regime === 'BEARISH' ? 'bg-red-500/15 text-red-400 border-red-900/40' :
                 marketCondition.regime === 'HIGH_VOLATILITY' ? 'bg-purple-500/15 text-purple-400 border-purple-900/40' :
@@ -975,9 +975,9 @@ export default function AIAnalyticsHub({
                 Market: {marketCondition.regime.replace('_', ' ')} · {marketCondition.trendQuality} trend
               </span>
             )}
-            <div className="flex bg-slate-950/60 p-0.5 border border-slate-800 rounded-lg">
-              <button onClick={() => setHorizonFilter('SHORT')} className={`px-3 py-1 text-[9px] font-bold rounded-lg transition-all ${horizonFilter === 'SHORT' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>⚡ Short</button>
-              <button onClick={() => setHorizonFilter('LONG')} className={`px-3 py-1 text-[9px] font-bold rounded-lg transition-all ${horizonFilter === 'LONG' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>🏛️ Long</button>
+            <div className="flex bg-slate-800/60 p-0.5 border border-slate-700/50 rounded-lg">
+              <button onClick={() => setHorizonFilter('SHORT')} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${horizonFilter === 'SHORT' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>⚡ Short</button>
+              <button onClick={() => setHorizonFilter('LONG')} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${horizonFilter === 'LONG' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>🏛️ Long</button>
             </div>
           </div>
 
@@ -988,26 +988,26 @@ export default function AIAnalyticsHub({
               const ta = taData[pred.ticker];
               const sm = ta ? detectSmartMoney([], ta) : null;
               return (
-              <div key={i} className={`p-4 rounded-xl border transition-all duration-300 hover:shadow-lg cursor-pointer ${pred.direction === 'BULLISH' ? 'border-emerald-900/40 bg-emerald-950/10 hover:border-emerald-700/60' : pred.direction === 'BEARISH' ? 'border-red-900/40 bg-red-950/10 hover:border-red-700/60' : 'border-slate-700/40 bg-slate-950/20 hover:border-slate-600/60'}`}
+              <div key={i} className={`p-4 rounded-xl border transition-all duration-300 hover:shadow-lg cursor-pointer ${pred.direction === 'BULLISH' ? 'border-emerald-900/40 bg-emerald-950/10 hover:border-emerald-700/60' : pred.direction === 'BEARISH' ? 'border-red-900/40 bg-red-950/10 hover:border-red-700/60' : 'border-slate-700/40 bg-slate-800/20 hover:border-slate-600/60'}`}
                 onClick={() => setSelectedTicker(selectedTicker === pred.ticker ? null : pred.ticker)}>
                 <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-bold font-mono text-white">{pred.ticker}</span>
-                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${pred.direction === 'BULLISH' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : pred.direction === 'BEARISH' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}>
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${pred.direction === 'BULLISH' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : pred.direction === 'BEARISH' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}>
                       {pred.direction === 'BULLISH' ? '📈 BULLISH' : pred.direction === 'BEARISH' ? '📉 BEARISH' : '⚖️ NEUTRAL'}
                     </span>
-                    {stocks[pred.ticker]?.price > 0 && <span className="text-[7px] text-emerald-500 font-mono bg-emerald-950/30 px-1 rounded border border-emerald-900/50">LIVE</span>}
+                    {stocks[pred.ticker]?.price > 0 && <span className="text-[10px] text-emerald-500 font-mono bg-emerald-950/30 px-1 rounded border border-emerald-900/50">LIVE</span>}
                     <RegimeBadge regime={pred.regime} />
-                    <span className="text-[8px] text-slate-500 font-mono">{pred.timeframe}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{pred.timeframe}</span>
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between bg-slate-950/40 rounded-lg px-3 py-2 mb-2 border border-slate-800/50">
+                <div className="flex items-center justify-between bg-slate-800/40 rounded-lg px-3 py-2 mb-2 border border-slate-700/50/50">
                   <div>
-                    <div className="text-[7px] text-slate-500 font-mono uppercase">Live price</div>
+                    <div className="text-[10px] text-slate-500 font-mono uppercase">Live price</div>
                     <LiveTickerPrice ticker={pred.ticker} stocks={stocks} fallback={pred.entryPrice} decimals={2} className="text-sm font-bold text-white" showChange />
                   </div>
-                  <div className="text-right text-[8px] font-mono text-slate-500">
+                  <div className="text-right text-[10px] font-mono text-slate-500">
                     <div>Model entry</div>
                     <div className="text-slate-400">{tickerCurrency(pred.ticker)}{pred.entryPrice > 0 ? pred.entryPrice.toFixed(2) : '—'}</div>
                   </div>
@@ -1016,7 +1016,7 @@ export default function AIAnalyticsHub({
                 {/* Probability bars */}
                 <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <div className="flex items-center justify-between text-[8px] mb-1">
+                    <div className="flex items-center justify-between text-[10px] mb-1">
                       <span className="text-emerald-400 font-mono">Bullish {pred.bullishProb.toFixed(0)}%</span>
                       <span className="text-red-400 font-mono">Bearish {pred.bearishProb.toFixed(0)}%</span>
                     </div>
@@ -1037,16 +1037,16 @@ export default function AIAnalyticsHub({
                   const dir = pctChange >= 0 ? '▲' : '▼';
                   const color = pctChange > 0 ? 'text-emerald-400' : pctChange < 0 ? 'text-red-400' : 'text-slate-300';
                   return (
-                    <div className="flex items-center justify-between bg-slate-950/30 rounded-lg p-2.5 mb-2 border border-slate-800/50">
+                    <div className="flex items-center justify-between bg-slate-800/30 rounded-lg p-2.5 mb-2 border border-slate-700/50/50">
                       <div className="flex items-center gap-3">
                         <span className={`text-xl font-bold font-mono ${color}`}>{dir} {Math.abs(pctChange).toFixed(1)}%</span>
-                        <div className="text-[9px] font-mono leading-tight">
+                        <div className="text-xs font-mono leading-tight">
                           <div className="text-slate-500">Target <span className={color}>{tickerCurrency(pred.ticker)}{pred.targetPrice.toFixed(2)}</span></div>
                           <div className="text-slate-600">by {pred.targetDate}</div>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="text-right text-[8px] font-mono">
+                        <div className="text-right text-[10px] font-mono">
                           <div className="text-slate-500">Entry</div>
                           <div className="text-white font-bold">{tickerCurrency(pred.ticker)}{pred.entryPrice.toFixed(2)}</div>
                         </div>
@@ -1060,7 +1060,7 @@ export default function AIAnalyticsHub({
                   const signalScore = (pred.confidence * 0.5 + pred.trendStrength * 0.3 + Math.abs(pred.bullishProb - 50) * 0.2);
                   const clamped = Math.min(100, Math.max(0, signalScore));
                   return (
-                    <div className="flex items-center gap-2 text-[8px] font-mono mb-2 px-1">
+                    <div className="flex items-center gap-2 text-[10px] font-mono mb-2 px-1">
                       <span className="text-slate-500 w-10 shrink-0">Signal</span>
                       <div className="flex-1 bg-slate-800 rounded-full h-1.5">
                         <div className="h-1.5 rounded-full transition-all duration-500" style={{
@@ -1078,21 +1078,21 @@ export default function AIAnalyticsHub({
                   const dw = dailyWeeklyMap[pred.ticker];
                   return (
                     <div className="flex items-center gap-2 mb-2 px-1 flex-wrap">
-                      <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
                         dw.daily.direction === 'BULLISH' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-900/40' :
                         dw.daily.direction === 'BEARISH' ? 'bg-red-500/20 text-red-400 border-red-900/40' :
                         'bg-slate-500/20 text-slate-400 border-slate-700'
                       }`}>
                         Daily {dw.daily.direction === 'BULLISH' ? '▲' : dw.daily.direction === 'BEARISH' ? '▼' : '◆'} {dw.daily.confidence}%
                       </span>
-                      <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
                         dw.weekly.direction === 'BULLISH' ? 'bg-blue-500/20 text-blue-400 border-blue-900/40' :
                         dw.weekly.direction === 'BEARISH' ? 'bg-orange-500/20 text-orange-400 border-orange-900/40' :
                         'bg-slate-500/20 text-slate-400 border-slate-700'
                       }`}>
                         Weekly {dw.weekly.direction === 'BULLISH' ? '▲' : dw.weekly.direction === 'BEARISH' ? '▼' : '◆'} {dw.weekly.confidence}%
                       </span>
-                      <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded-full border ${
                         dw.signalQuality === 'EXCELLENT' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-900/40' :
                         dw.signalQuality === 'GOOD' ? 'bg-blue-500/20 text-blue-400 border-blue-900/40' :
                         dw.signalQuality === 'FAIR' ? 'bg-yellow-500/20 text-yellow-400 border-yellow-900/40' :
@@ -1101,7 +1101,7 @@ export default function AIAnalyticsHub({
                         {dw.signalQuality === 'EXCELLENT' ? '🟢' : dw.signalQuality === 'GOOD' ? '🔵' : dw.signalQuality === 'FAIR' ? '🟡' : '⚪'} {dw.signalQuality}
                       </span>
                       {dw.recommendation !== 'HOLD' && (
-                        <span className={`text-[7px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+                        <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
                           dw.recommendation === 'STRONG_BUY' ? 'bg-emerald-500/25 text-emerald-300 border-emerald-500/50' :
                           dw.recommendation === 'BUY' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-900/40' :
                           dw.recommendation === 'AVOID' ? 'bg-red-500/15 text-red-400 border-red-900/40' :
@@ -1125,22 +1125,22 @@ export default function AIAnalyticsHub({
                   ];
                   return (
                     <div className="flex items-center gap-1.5 mb-2 px-1 flex-wrap">
-                      <span className="text-[7px] text-slate-600 font-mono uppercase mr-0.5">Factors:</span>
+                      <span className="text-[10px] text-slate-600 font-mono uppercase mr-0.5">Factors:</span>
                       {factors.map(f => (
-                        <span key={f.label} className={`text-[7px] font-mono font-bold px-1 py-0.5 rounded border ${
+                        <span key={f.label} className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border ${
                           f.active
                             ? f.bull ? 'bg-emerald-500/15 text-emerald-400 border-emerald-900/40' : 'bg-red-500/15 text-red-400 border-red-900/40'
-                            : 'bg-slate-800/30 text-slate-600 border-slate-800'
+                            : 'bg-slate-800/30 text-slate-600 border-slate-700/50'
                         }`}>
                           {f.label}{f.active ? f.bull ? '▲' : '▼' : '–'}
                         </span>
                       ))}
-                      <span className={`text-[7px] font-mono font-bold px-1 py-0.5 rounded border ${
+                      <span className={`text-[10px] font-mono font-bold px-1 py-0.5 rounded border ${
                         sm?.accumulation && sm.accumulation > 55
                           ? 'bg-purple-500/15 text-purple-400 border-purple-900/40'
                           : sm?.distribution && sm.distribution > 55
                           ? 'bg-orange-500/15 text-orange-400 border-orange-900/40'
-                          : 'bg-slate-800/30 text-slate-600 border-slate-800'
+                          : 'bg-slate-800/30 text-slate-600 border-slate-700/50'
                       }`}>
                         {sm?.accumulation && sm.accumulation > 55 ? 'Smart$▲' : sm?.distribution && sm.distribution > 55 ? 'Smart$▼' : 'Smart$–'}
                       </span>
@@ -1149,32 +1149,32 @@ export default function AIAnalyticsHub({
                 })()}
 
                 {/* Reasoning */}
-                <div className="bg-slate-950/40 rounded-lg p-3">
-                  <p className="text-[10px] text-slate-300 leading-relaxed">
-                    <span className="text-emerald-400 font-bold font-mono text-[8px] block uppercase mb-1">🧠 Multi-Factor Analysis:</span>
+                <div className="bg-slate-800/40 rounded-lg p-3">
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    <span className="text-emerald-400 font-bold font-mono text-[10px] block uppercase mb-1">🧠 Multi-Factor Analysis:</span>
                     {pred.reasoning.slice(0, 3).join(' · ')}
                   </p>
                 </div>
 
                 {/* TA Detail panel (expanded) */}
                 {selectedTicker === pred.ticker && ta && (
-                  <div className="mt-3 p-3 bg-slate-950/60 rounded-lg border border-slate-700/50 space-y-2">
-                    <div className="text-[8px] font-bold text-emerald-400 font-mono uppercase mb-2">📊 Technical Analysis Detail</div>
-                    <div className="grid grid-cols-3 gap-2 text-[8px] font-mono">
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">RSI </span><span className="text-white">{ta.rsi.toFixed(1)}</span></div>
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">MACD </span><span className="text-white">{ta.macd.line.toFixed(2)}</span></div>
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">ADX </span><span className="text-white">{ta.adx.toFixed(1)}</span></div>
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">BB Width </span><span className="text-white">{ta.bollinger.width.toFixed(1)}%</span></div>
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">ATR </span><span className="text-white">{ta.atr.toFixed(2)}</span></div>
-                      <div className="bg-slate-950 rounded p-2"><span className="text-slate-500">StochRSI </span><span className="text-white">{ta.stochRsi.toFixed(1)}</span></div>
+                  <div className="mt-3 p-3 bg-slate-800/60 rounded-lg border border-slate-700/50 space-y-2">
+                    <div className="text-[10px] font-bold text-emerald-400 font-mono uppercase mb-2">📊 Technical Analysis Detail</div>
+                    <div className="grid grid-cols-3 gap-2 text-[10px] font-mono">
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">RSI </span><span className="text-white">{ta.rsi.toFixed(1)}</span></div>
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">MACD </span><span className="text-white">{ta.macd.line.toFixed(2)}</span></div>
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">ADX </span><span className="text-white">{ta.adx.toFixed(1)}</span></div>
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">BB Width </span><span className="text-white">{ta.bollinger.width.toFixed(1)}%</span></div>
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">ATR </span><span className="text-white">{ta.atr.toFixed(2)}</span></div>
+                      <div className="bg-slate-800 rounded p-2"><span className="text-slate-500">StochRSI </span><span className="text-white">{ta.stochRsi.toFixed(1)}</span></div>
                     </div>
-                    <div className="flex items-center gap-2 mt-2 text-[8px] font-mono">
+                    <div className="flex items-center gap-2 mt-2 text-[10px] font-mono">
                       <span className="text-slate-500">Support: </span><span className="text-emerald-400 font-bold">${ta.support.toFixed(2)}</span>
                       <span className="text-slate-500 ml-2">Resistance: </span><span className="text-red-400 font-bold">${ta.resistance.toFixed(2)}</span>
                       <span className="text-slate-500 ml-2">VWAP: </span><span className="text-white">${ta.vwap.toFixed(2)}</span>
                     </div>
                     {sm && (
-                      <div className="mt-1 text-[8px] font-mono">
+                      <div className="mt-1 text-[10px] font-mono">
                         <span className="text-slate-500">Smart Money: </span>
                         <span className={sm.accumulation > 60 ? 'text-emerald-400' : sm.distribution > 60 ? 'text-red-400' : 'text-slate-400'}>
                           {sm.institutionalActivity}
@@ -1193,14 +1193,14 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="TRACK" activeModule={activeModule}>
         <div className="space-y-4">
           <div className="flex justify-between items-center px-1">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">📊 AI Track Record — Historical Validation</span>
-            {lastUpdated && <span className="text-[7px] text-slate-600 font-mono">Updated {lastUpdated}</span>}
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">📊 AI Track Record — Historical Validation</span>
+            {lastUpdated && <span className="text-[10px] text-slate-600 font-mono">Updated {lastUpdated}</span>}
           </div>
 
           {/* Market condition overview */}
           {marketCondition && (
-            <div className="grid grid-cols-4 gap-2 text-[8px] font-mono">
-              <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800/50 text-center">
+            <div className="grid grid-cols-4 gap-2 text-[10px] font-mono">
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50/50 text-center">
                 <span className="text-slate-500 block mb-0.5">Market Regime</span>
                 <span className={`font-bold ${
                   marketCondition.regime === 'STRONG_BULLISH' || marketCondition.regime === 'BULLISH' ? 'text-emerald-400' :
@@ -1208,15 +1208,15 @@ export default function AIAnalyticsHub({
                   marketCondition.regime === 'HIGH_VOLATILITY' ? 'text-purple-400' : 'text-yellow-400'
                 }`}>{marketCondition.regime.replace('_', ' ')}</span>
               </div>
-              <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800/50 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50/50 text-center">
                 <span className="text-slate-500 block mb-0.5">Volatility</span>
                 <span className={`font-bold ${marketCondition.volatility === 'HIGH' ? 'text-red-400' : marketCondition.volatility === 'MEDIUM' ? 'text-yellow-400' : 'text-emerald-400'}`}>{marketCondition.volatility}</span>
               </div>
-              <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800/50 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50/50 text-center">
                 <span className="text-slate-500 block mb-0.5">Momentum</span>
                 <span className="font-bold text-white">{marketCondition.momentum}</span>
               </div>
-              <div className="bg-slate-950/50 rounded-lg p-3 border border-slate-800/50 text-center">
+              <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50/50 text-center">
                 <span className="text-slate-500 block mb-0.5">Trend Quality</span>
                 <span className={`font-bold ${marketCondition.trendQuality === 'EXCELLENT' ? 'text-emerald-400' : marketCondition.trendQuality === 'GOOD' ? 'text-blue-400' : marketCondition.trendQuality === 'FAIR' ? 'text-yellow-400' : 'text-red-400'}`}>{marketCondition.trendQuality}</span>
               </div>
@@ -1224,16 +1224,16 @@ export default function AIAnalyticsHub({
           )}
 
           {/* Accuracy summary */}
-          <div className="grid grid-cols-4 gap-3 text-[8px] font-mono">
-            <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800/50 text-center">
+          <div className="grid grid-cols-4 gap-3 text-[10px] font-mono">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50/50 text-center">
               <div className="text-slate-500 uppercase mb-1">Total Pred.</div>
               <div className="text-lg font-bold text-white">{accuracyHistory.length}</div>
             </div>
-            <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800/50 text-center">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50/50 text-center">
               <div className="text-slate-500 uppercase mb-1">Resolved</div>
               <div className="text-lg font-bold text-white">{accuracyHistory.filter(r => r.resolved).length}</div>
             </div>
-            <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800/50 text-center">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50/50 text-center">
               <div className="text-slate-500 uppercase mb-1">Correct</div>
               <div className={`text-lg font-bold ${(() => {
                 const res = accuracyHistory.filter(r => r.resolved);
@@ -1242,7 +1242,7 @@ export default function AIAnalyticsHub({
                 return rate > 60 ? 'text-emerald-400' : rate > 40 ? 'text-yellow-400' : 'text-red-400';
               })()}`}>{accuracyHistory.filter(r => r.correct).length}</div>
             </div>
-            <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800/50 text-center">
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700/50/50 text-center">
               <div className="text-slate-500 uppercase mb-1">Win Rate</div>
               <div className={`text-lg font-bold ${(() => {
                 const res = accuracyHistory.filter(r => r.resolved);
@@ -1260,10 +1260,10 @@ export default function AIAnalyticsHub({
           {/* Resolved predictions list */}
           {accuracyHistory.filter(r => r.resolved).length > 0 && (
             <div>
-              <div className="text-[8px] font-bold text-slate-500 uppercase tracking-widest font-mono mb-2">Recent Results</div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono mb-2">Recent Results</div>
               <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
                 {accuracyHistory.filter(r => r.resolved).reverse().slice(0, 20).map(r => (
-                  <div key={r.id} className="flex items-center justify-between bg-slate-950/30 border border-slate-800/50 rounded-lg px-3 py-2 text-[8px] font-mono">
+                  <div key={r.id} className="flex items-center justify-between bg-slate-800/30 border border-slate-700/50/50 rounded-lg px-3 py-2 text-[10px] font-mono">
                     <div className="flex items-center gap-2">
                       <span className="text-white font-bold">{r.ticker}</span>
                       <span className={`${r.direction === 'BULLISH' ? 'text-emerald-400' : r.direction === 'BEARISH' ? 'text-red-400' : 'text-slate-400'}`}>{r.direction}</span>
@@ -1283,10 +1283,10 @@ export default function AIAnalyticsHub({
 
           {accuracyHistory.filter(r => !r.resolved).length > 0 && (
             <div>
-              <div className="text-[8px] font-bold text-slate-500 uppercase tracking-widest font-mono mb-2">Active Predictions (awaiting resolution)</div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest font-mono mb-2">Active Predictions (awaiting resolution)</div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                 {accuracyHistory.filter(r => !r.resolved).reverse().slice(0, 10).map(r => (
-                  <div key={r.id} className="flex items-center justify-between bg-slate-950/30 border border-slate-800/50 rounded-lg px-3 py-2 text-[8px] font-mono">
+                  <div key={r.id} className="flex items-center justify-between bg-slate-800/30 border border-slate-700/50/50 rounded-lg px-3 py-2 text-[10px] font-mono">
                     <div className="flex items-center gap-2">
                       <span className="text-white font-bold">{r.ticker}</span>
                       <span className={`${r.direction === 'BULLISH' ? 'text-emerald-400' : r.direction === 'BEARISH' ? 'text-red-400' : 'text-slate-400'}`}>{r.direction}</span>
@@ -1305,7 +1305,7 @@ export default function AIAnalyticsHub({
           {accuracyHistory.length === 0 && (
             <div className="text-center py-10">
               <div className="text-3xl mb-2">📊</div>
-              <p className="text-[10px] text-slate-500 font-mono">No prediction history yet. Predictions will appear here once they reach their target date and can be verified against actual market prices.</p>
+              <p className="text-xs text-slate-500 font-mono">No prediction history yet. Predictions will appear here once they reach their target date and can be verified against actual market prices.</p>
             </div>
           )}
         </div>
@@ -1315,74 +1315,74 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="GEMS" activeModule={activeModule}>
         <div className="space-y-3">
           <div className="flex justify-between items-center px-1 flex-wrap gap-2">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">💎 Gems + Multibagger hunt</span>
-            <span className="text-[9px] text-orange-400 font-mono bg-orange-950/30 px-2 py-0.5 border border-orange-900/50 rounded-full">
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">💎 Gems + Multibagger hunt</span>
+            <span className="text-xs text-orange-400 font-mono bg-orange-950/30 px-2 py-0.5 border border-orange-900/50 rounded-full">
               {multibaggerLoading ? 'Scanning…' : `${multibaggerPicks.length} multibagger watch`}
             </span>
           </div>
 
           <div className="border border-orange-900/40 bg-orange-950/10 rounded-xl p-3 space-y-2">
-            <div className="text-[9px] font-bold text-orange-300 font-mono uppercase tracking-wider">
+            <div className="text-xs font-bold text-orange-300 font-mono uppercase tracking-wider">
               🚀 Undervalued growth watch (multibagger / tenbagger style)
             </div>
-            <p className="text-[9px] text-slate-500 font-mono leading-relaxed">
+            <p className="text-xs text-slate-500 font-mono leading-relaxed">
               Scans Nifty + curated mid/small caps (semis, industrials — e.g. Moschip-style names) with Yahoo + NSE + Screener cross-check.
               Top picks get <strong className="text-orange-300">DeepSeek/Groq</strong> deep analysis when API key is set. Open <strong className="text-orange-300">Stock Pulse</strong> for full HTML report.
             </p>
             {multibaggerLoading && multibaggerPicks.length === 0 ? (
-              <div className="text-[10px] text-slate-500 font-mono animate-pulse py-4 text-center">Scanning Nifty universe for fundamental multibagger signals…</div>
+              <div className="text-xs text-slate-500 font-mono animate-pulse py-4 text-center">Scanning Nifty universe for fundamental multibagger signals…</div>
             ) : (
               <div className="grid grid-cols-1 gap-2">
                 {multibaggerPicks.map(pick => (
-                  <div key={pick.ticker} className="p-3 border border-orange-800/50 bg-slate-950/40 rounded-lg">
+                  <div key={pick.ticker} className="p-3 border border-orange-800/50 bg-slate-800/40 rounded-lg">
                     <div className="flex justify-between items-start gap-2 flex-wrap">
                       <div>
                         <span className="text-sm font-bold text-white font-mono">{pick.ticker}</span>
-                        <span className={`ml-2 text-[7px] font-bold px-1.5 py-0.5 rounded border ${
+                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded border ${
                           pick.tier === 'SPECULATIVE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
                             : pick.tier === 'CANDIDATE' ? 'bg-orange-500/20 text-orange-300 border-orange-500/40'
                             : pick.gemArchetype === 'UNDERRATED_GEM' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                             : 'bg-slate-500/20 text-slate-400 border-slate-600'
                         }`}>{pick.tag}</span>
                         {pick.llmEnriched && (
-                          <span className="ml-1 text-[7px] text-cyan-400/90">AI deep</span>
+                          <span className="ml-1 text-[10px] text-cyan-400/90">AI deep</span>
                         )}
-                        <div className="text-[9px] text-slate-500 mt-0.5">{pick.name}</div>
+                        <div className="text-xs text-slate-500 mt-0.5">{pick.name}</div>
                       </div>
                       <div className="text-right">
                         <LiveTickerPrice ticker={pick.ticker} stocks={stocks} fallback={pick.price} decimals={2} className="text-base font-bold text-white" />
-                        <div className="text-[8px] text-orange-400 font-mono">Score {pick.score}/100</div>
+                        <div className="text-[10px] text-orange-400 font-mono">Score {pick.score}/100</div>
                       </div>
                     </div>
-                    <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
+                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">
                       {pick.deepAnalysis || pick.growthThesis}
                     </p>
                     {pick.sectorTheme && (
-                      <p className="text-[8px] text-cyan-500/80 mt-1">◎ {pick.sectorTheme}</p>
+                      <p className="text-[10px] text-cyan-500/80 mt-1">◎ {pick.sectorTheme}</p>
                     )}
                     {pick.expectedCagrBand && (
-                      <p className="text-[8px] text-slate-500 mt-0.5">Growth band (illustrative): {pick.expectedCagrBand}</p>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Growth band (illustrative): {pick.expectedCagrBand}</p>
                     )}
                     {pick.undervaluationNote && (
-                      <p className="text-[8px] text-emerald-500/70 mt-1 italic">{pick.undervaluationNote}</p>
+                      <p className="text-[10px] text-emerald-500/70 mt-1 italic">{pick.undervaluationNote}</p>
                     )}
-                    <ul className="mt-2 text-[8px] text-emerald-400/90 space-y-0.5">
+                    <ul className="mt-2 text-[10px] text-emerald-400/90 space-y-0.5">
                       {(pick.reasons ?? []).slice(0, 4).map(r => <li key={r}>+ {r}</li>)}
                     </ul>
                     {(pick.risks ?? []).slice(0, 2).map(r => (
-                      <p key={r} className="text-[8px] text-amber-500/80 mt-0.5">⚠ {r}</p>
+                      <p key={r} className="text-[10px] text-amber-500/80 mt-0.5">⚠ {r}</p>
                     ))}
                     <button
                       type="button"
                       onClick={() => selectModule('STOCK_PULSE')}
-                      className="mt-2 text-[8px] text-orange-400 font-mono underline hover:text-orange-300"
+                      className="mt-2 text-[10px] text-orange-400 font-mono underline hover:text-orange-300"
                     >
                       Open full Stock Pulse report →
                     </button>
                   </div>
                 ))}
                 {!multibaggerLoading && multibaggerPicks.length === 0 && (
-                  <p className={`text-[9px] font-mono text-center py-2 ${multibaggerError ? 'text-amber-500/90' : 'text-slate-600'}`}>
+                  <p className={`text-xs font-mono text-center py-2 ${multibaggerError ? 'text-amber-500/90' : 'text-slate-600'}`}>
                     {multibaggerError ?? 'No candidates in this scan batch — try again in ~2 min.'}
                   </p>
                 )}
@@ -1391,8 +1391,8 @@ export default function AIAnalyticsHub({
           </div>
 
           <div className="flex justify-between items-center px-1">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">TA-screened gems</span>
-            <span className="text-[9px] text-emerald-400 font-mono bg-emerald-950/30 px-2 py-0.5 border border-emerald-900/50 rounded-full">{hiddenGems.length} · live TA</span>
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">TA-screened gems</span>
+            <span className="text-xs text-emerald-400 font-mono bg-emerald-950/30 px-2 py-0.5 border border-emerald-900/50 rounded-full">{hiddenGems.length} · live TA</span>
           </div>
           <div className="grid grid-cols-1 gap-3">
             {hiddenGems.map((gem, _i) => {
@@ -1408,56 +1408,56 @@ export default function AIAnalyticsHub({
                 'Favorable TA setup with balanced risk/reward'
               ) : 'Awaiting technical data';
               return (
-              <div key={_i} className="p-4 border border-slate-800 bg-slate-950/30 rounded-xl hover:border-emerald-700/50 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5">
+              <div key={_i} className="p-4 border border-slate-700/50 bg-slate-800/30 rounded-xl hover:border-emerald-700/50 transition-all duration-300 hover:shadow-lg hover:shadow-emerald-500/5">
                 <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold font-mono text-white">{gem.ticker}</span>
-                      {gem.hasRealData && <span className="text-[8px] text-emerald-500 font-mono bg-emerald-950/30 px-1 rounded border border-emerald-900/50">REAL</span>}
-                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${riskLabel === 'LOW' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : riskLabel === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>{riskLabel} RISK</span>
+                      {gem.hasRealData && <span className="text-[10px] text-emerald-500 font-mono bg-emerald-950/30 px-1 rounded border border-emerald-900/50">REAL</span>}
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${riskLabel === 'LOW' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : riskLabel === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>{riskLabel} RISK</span>
                       {ta && <RegimeBadge regime={detectRegime(ta)} />}
                     </div>
-                    <div className="text-[10px] text-slate-400">{gem.name}</div>
+                    <div className="text-xs text-slate-400">{gem.name}</div>
                   </div>
                   <div className="text-right">
                     <LiveTickerPrice ticker={gem.ticker} stocks={stocks} fallback={gem.currentPrice} decimals={2} className="text-lg font-bold text-white" showChange />
-                    <div className="text-[9px] font-mono text-slate-500">Market Price</div>
+                    <div className="text-xs font-mono text-slate-500">Market Price</div>
                   </div>
                 </div>
 
-                <div className="bg-slate-950/60 rounded-lg p-3 mb-3 border-l-2 border-emerald-500/50">
-                  <p className="text-[10px] text-slate-300 leading-relaxed mb-2">{gem.ta ? aiGemReasoning(gem.ta, gem.ticker) : 'Loading technical analysis data — AI scanning in progress...'}</p>
+                <div className="bg-slate-800/60 rounded-lg p-3 mb-3 border-l-2 border-emerald-500/50">
+                  <p className="text-xs text-slate-300 leading-relaxed mb-2">{gem.ta ? aiGemReasoning(gem.ta, gem.ticker) : 'Loading technical analysis data — AI scanning in progress...'}</p>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[8px] text-yellow-400 font-mono">⚡ Signal:</span>
-                    <span className="text-[9px] text-slate-400">{catalystText}</span>
+                    <span className="text-[10px] text-yellow-400 font-mono">⚡ Signal:</span>
+                    <span className="text-xs text-slate-400">{catalystText}</span>
                   </div>
                 </div>
 
                 {ta && (
-                  <div className="grid grid-cols-3 gap-2 mb-3 text-[8px] font-mono">
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                  <div className="grid grid-cols-3 gap-2 mb-3 text-[10px] font-mono">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">RSI</span>
-                      <span className="text-white font-bold text-[10px]">{ta.rsi.toFixed(1)}</span>
+                      <span className="text-white font-bold text-xs">{ta.rsi.toFixed(1)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">ADX</span>
-                      <span className="text-white font-bold text-[10px]">{ta.adx.toFixed(1)}</span>
+                      <span className="text-white font-bold text-xs">{ta.adx.toFixed(1)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">Volatility</span>
-                      <span className={ta.bollinger.width > 6 ? 'text-red-400 font-bold text-[10px]' : 'text-white font-bold text-[10px]'}>{ta.bollinger.width.toFixed(1)}%</span>
+                      <span className={ta.bollinger.width > 6 ? 'text-red-400 font-bold text-xs' : 'text-white font-bold text-xs'}>{ta.bollinger.width.toFixed(1)}%</span>
                     </div>
                     {sm && (
                       <>
-                        <div className="bg-slate-950 rounded-lg p-2 text-center col-span-2">
+                        <div className="bg-slate-800 rounded-lg p-2 text-center col-span-2">
                           <span className="text-slate-500 block">Smart Money</span>
-                          <span className={sm.accumulation > 60 ? 'text-emerald-400 font-bold text-[10px]' : 'text-slate-400 font-bold text-[10px]'}>
+                          <span className={sm.accumulation > 60 ? 'text-emerald-400 font-bold text-xs' : 'text-slate-400 font-bold text-xs'}>
                             {sm.institutionalActivity}
                           </span>
                         </div>
-                        <div className="bg-slate-950 rounded-lg p-2 text-center">
+                        <div className="bg-slate-800 rounded-lg p-2 text-center">
                           <span className="text-slate-500 block">Accumulation</span>
-                          <span className="text-emerald-400 font-bold text-[10px]">{sm.accumulation.toFixed(0)}%</span>
+                          <span className="text-emerald-400 font-bold text-xs">{sm.accumulation.toFixed(0)}%</span>
                         </div>
                       </>
                     )}
@@ -1469,7 +1469,7 @@ export default function AIAnalyticsHub({
             )})}
           </div>
 
-          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-[10px] text-amber-300 leading-relaxed">
+          <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/20 text-xs text-amber-300 leading-relaxed">
             ⚡ <b>AI Insight:</b> Gems screened via multi-factor analysis (RSI, ADX, volume accumulation, institutional activity, valuation gap). Diversify across 4-6 positions with proper position sizing.
           </div>
         </div>
@@ -1479,8 +1479,8 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="STOCK_PULSE" activeModule={activeModule}>
         <div className="space-y-3">
           <div className="px-1">
-            <span className="text-[9px] uppercase font-bold text-orange-400 tracking-widest font-mono">📡 Stock Pulse — Deep Fundamental Analyser</span>
-            <p className="text-[8px] text-slate-600 font-mono mt-1">Auto cross-check: Yahoo + NSE + Screener.in · learns each run · no buy/sell</p>
+            <span className="text-xs uppercase font-bold text-orange-400 tracking-widest font-mono">📡 Stock Pulse — Deep Fundamental Analyser</span>
+            <p className="text-[10px] text-slate-600 font-mono mt-1">Auto cross-check: Yahoo + NSE + Screener.in · learns each run · no buy/sell</p>
           </div>
           <StockPulsePanel />
         </div>
@@ -1490,10 +1490,10 @@ export default function AIAnalyticsHub({
       <ModulePanel moduleKey="SIGNALS" activeModule={activeModule}>
         <div className="space-y-4">
           <div className="flex justify-between items-center">
-            <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">🎯 AI Buy Signals — TA-Validated</span>
-            <div className="flex bg-slate-950/60 p-0.5 border border-slate-800 rounded-lg">
-              <button onClick={() => setHorizonFilter('SHORT')} className={`px-3 py-1 text-[9px] font-bold rounded-lg transition-all ${horizonFilter === 'SHORT' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>⚡ Short</button>
-              <button onClick={() => setHorizonFilter('LONG')} className={`px-3 py-1 text-[9px] font-bold rounded-lg transition-all ${horizonFilter === 'LONG' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>🏛️ Long</button>
+            <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">🎯 AI Buy Signals — TA-Validated</span>
+            <div className="flex bg-slate-800/60 p-0.5 border border-slate-700/50 rounded-lg">
+              <button onClick={() => setHorizonFilter('SHORT')} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${horizonFilter === 'SHORT' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>⚡ Short</button>
+              <button onClick={() => setHorizonFilter('LONG')} className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${horizonFilter === 'LONG' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'}`}>🏛️ Long</button>
             </div>
           </div>
 
@@ -1504,40 +1504,40 @@ export default function AIAnalyticsHub({
             }).map((sig, idx) => {
               const ta = taData[sig.ticker];
               return (
-              <div key={idx} className="border border-slate-800 bg-slate-950/30 rounded-xl p-4 hover:border-slate-700/80 transition-all duration-300 hover:shadow-lg">
+              <div key={idx} className="border border-slate-700/50 bg-slate-800/30 rounded-xl p-4 hover:border-slate-700/80 transition-all duration-300 hover:shadow-lg">
                 <div className="flex items-start justify-between flex-wrap gap-2 mb-3">
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold font-mono text-white">{sig.ticker}</span>
-                      <span className={`text-[8px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${sig.riskIndex === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : sig.riskIndex === 'MEDIUM' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{sig.riskIndex} RISK</span>
+                      <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded uppercase ${sig.riskIndex === 'LOW' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : sig.riskIndex === 'MEDIUM' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-red-500/10 text-red-400 border border-red-500/20'}`}>{sig.riskIndex} RISK</span>
                       {ta && <RegimeBadge regime={detectRegime(ta)} />}
-                      <span className="text-[8px] text-slate-500 font-mono">{sig.timeframe}</span>
+                      <span className="text-[10px] text-slate-500 font-mono">{sig.timeframe}</span>
                     </div>
-                    <div className="text-[10px] text-slate-400 mt-0.5">{sig.name}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{sig.name}</div>
                   </div>
                   <div className="text-right font-mono">
-                    <div className="text-[8px] text-slate-500 uppercase font-bold">Price</div>
+                    <div className="text-[10px] text-slate-500 uppercase font-bold">Price</div>
                     <LiveTickerPrice ticker={sig.ticker} stocks={stocks} fallback={sig.price} decimals={2} className="text-xs font-bold text-emerald-400" showChange />
                   </div>
                 </div>
 
                 {ta && (
-                  <div className="grid grid-cols-4 gap-2 mb-3 text-[8px] font-mono">
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                  <div className="grid grid-cols-4 gap-2 mb-3 text-[10px] font-mono">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">RSI</span>
                       <span className="text-white font-bold">{ta.rsi.toFixed(1)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">ADX</span>
                       <span className="text-white font-bold">{ta.adx.toFixed(1)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">Momentum</span>
                       <span className={ta.macd.histogram > 0 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold'}>
                         {ta.macd.histogram > 0 ? '▲' : '▼'} {Math.abs(ta.macd.histogram).toFixed(2)}
                       </span>
                     </div>
-                    <div className="bg-slate-950 rounded-lg p-2 text-center">
+                    <div className="bg-slate-800 rounded-lg p-2 text-center">
                       <span className="text-slate-500 block">MACD</span>
                       <span className={`font-bold ${ta.macd.line > ta.macd.signal ? 'text-emerald-400' : 'text-red-400'}`}>
                         {ta.macd.line > ta.macd.signal ? 'Bull' : 'Bear'}
@@ -1550,8 +1550,8 @@ export default function AIAnalyticsHub({
                   <ConfidenceBar value={sig.confidence} label="AI Confidence" />
                 </div>
 
-                <div className="bg-slate-950 p-3 border border-slate-800/80 rounded-lg text-[10px] leading-relaxed text-slate-300">
-                  <span className="text-emerald-400 font-bold font-mono text-[8px] block uppercase mb-1">🤖 AI Context Reasoning:</span>
+                <div className="bg-slate-800 p-3 border border-slate-700/50/80 rounded-lg text-xs leading-relaxed text-slate-300">
+                  <span className="text-emerald-400 font-bold font-mono text-[10px] block uppercase mb-1">🤖 AI Context Reasoning:</span>
                   {sig.reasoning}
                 </div>
               </div>
@@ -1610,22 +1610,22 @@ function LearningTab() {
   return (
     <div key={refreshKey} className="space-y-4 animate-fade-in">
       {snapshot.totalResolvedPredictions > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🧠 AI Self-Learning — Knowledge Snapshot</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[8px] font-mono">
-            <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🧠 AI Self-Learning — Knowledge Snapshot</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+            <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
               <span className="text-slate-500 block">Predictions Analyzed</span>
               <span className="text-white font-bold text-xs">{snapshot.totalPredictionsAnalyzed}</span>
             </div>
-            <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+            <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
               <span className="text-slate-500 block">Resolved</span>
               <span className="text-white font-bold text-xs">{snapshot.totalResolvedPredictions}</span>
             </div>
-            <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+            <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
               <span className="text-slate-500 block">Calibration</span>
               <span className={`font-bold text-xs ${snapshot.calibrationQuality === 'EXCELLENT' ? 'text-emerald-400' : snapshot.calibrationQuality === 'GOOD' ? 'text-green-400' : snapshot.calibrationQuality === 'FAIR' ? 'text-yellow-400' : 'text-red-400'}`}>{snapshot.calibrationQuality}</span>
             </div>
-            <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+            <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
               <span className="text-slate-500 block">Days Active</span>
               <span className="text-white font-bold text-xs">{snapshot.daysActive}</span>
             </div>
@@ -1634,13 +1634,13 @@ function LearningTab() {
       )}
 
       {perfEntries.length > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📊 Indicator Performance Ranking (Learned)</div>
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📊 Indicator Performance Ranking (Learned)</div>
           <div className="space-y-1.5">
             {perfEntries.map(([name, r]) => {
               const barColor = r.accuracy >= 70 ? '#22c55e' : r.accuracy >= 50 ? '#eab308' : '#ef4444';
               return (
-                <div key={name} className="flex items-center gap-2 text-[8px] font-mono">
+                <div key={name} className="flex items-center gap-2 text-[10px] font-mono">
                   <span className="text-slate-400 w-16 shrink-0">{name}</span>
                   <div className="flex-1 bg-slate-800 rounded-full h-2 overflow-hidden">
                     <div className="h-full rounded-full transition-all" style={{ width: `${r.accuracy}%`, background: barColor }} />
@@ -1656,39 +1656,39 @@ function LearningTab() {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⚖️ Adaptive Indicator Weights</div>
-          <div className="grid grid-cols-2 gap-2 text-[8px] font-mono">
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⚖️ Adaptive Indicator Weights</div>
+          <div className="grid grid-cols-2 gap-2 text-[10px] font-mono">
             {Object.entries(weightMap).map(([ind, w]) => {
               const isHigh = w > 1.1;
               const isLow = w < 0.9;
               return (
-                <div key={ind} className="bg-slate-950/40 rounded-lg p-2 border border-slate-800/40 flex justify-between items-center">
+                <div key={ind} className="bg-slate-800/40 rounded-lg p-2 border border-slate-700/50/40 flex justify-between items-center">
                   <span className="text-slate-400">{ind.charAt(0).toUpperCase() + ind.slice(1)}</span>
                   <span className={`font-bold ${isHigh ? 'text-emerald-400' : isLow ? 'text-red-400' : 'text-white'}`}>{w.toFixed(2)}x</span>
                 </div>
               );
             })}
           </div>
-          <div className="mt-2 text-[7px] text-slate-600 font-mono">Total samples: {weights?.totalSamples ?? 0}</div>
+          <div className="mt-2 text-[10px] text-slate-600 font-mono">Total samples: {weights?.totalSamples ?? 0}</div>
         </div>
 
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📐 Confidence Calibration</div>
-          <div className="space-y-2 text-[8px] font-mono">
-            <div className="flex justify-between bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40">
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📐 Confidence Calibration</div>
+          <div className="space-y-2 text-[10px] font-mono">
+            <div className="flex justify-between bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40">
               <span className="text-slate-400">Quality</span>
               <span className={`font-bold ${calQuality === 'EXCELLENT' ? 'text-emerald-400' : calQuality === 'GOOD' ? 'text-green-400' : calQuality === 'FAIR' ? 'text-yellow-400' : 'text-red-400'}`}>{calQuality}</span>
             </div>
-            <div className="flex justify-between bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40">
+            <div className="flex justify-between bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40">
               <span className="text-slate-400">Overconfidence</span>
               <span className={`font-bold ${calOver === 'LOW' ? 'text-emerald-400' : calOver === 'MODERATE' ? 'text-yellow-400' : 'text-red-400'}`}>{calOver}</span>
             </div>
-            <div className="flex justify-between bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40">
+            <div className="flex justify-between bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40">
               <span className="text-slate-400">Underconfidence</span>
               <span className={`font-bold ${calUnder === 'LOW' ? 'text-emerald-400' : calUnder === 'MODERATE' ? 'text-yellow-400' : 'text-red-400'}`}>{calUnder}</span>
             </div>
-            <div className="mt-2 p-2 bg-slate-950/60 rounded-lg border border-slate-800/50 text-[7px] text-slate-400 leading-relaxed">
+            <div className="mt-2 p-2 bg-slate-800/60 rounded-lg border border-slate-700/50/50 text-[10px] text-slate-400 leading-relaxed">
               {calRec}
             </div>
           </div>
@@ -1696,16 +1696,16 @@ function LearningTab() {
       </div>
 
       {failEntries.length > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⚠️ Failure Pattern Analysis</div>
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⚠️ Failure Pattern Analysis</div>
           <div className="space-y-1.5">
             {failEntries.map(([, fp], i) => (
-              <div key={i} className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-[8px] font-mono">
+              <div key={i} className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-[10px] font-mono">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-slate-300 font-bold truncate max-w-[250px]">{fp.patternName}</span>
-                  <span className={`text-[7px] font-bold px-1.5 py-0.5 rounded ${fp.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : fp.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : fp.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}>{fp.severity}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${fp.severity === 'CRITICAL' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : fp.severity === 'HIGH' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : fp.severity === 'MEDIUM' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' : 'bg-slate-500/20 text-slate-400 border border-slate-500/30'}`}>{fp.severity}</span>
                 </div>
-                <div className="flex gap-4 text-[7px] text-slate-500">
+                <div className="flex gap-4 text-[10px] text-slate-500">
                   <span>Occurrences: {fp.totalOccurrences}</span>
                   <span>Repeat rate: {fp.repeatRate.toFixed(0)}%</span>
                   <span>Avg confidence: {fp.avgConfidenceAtFailure.toFixed(0)}%</span>
@@ -1722,22 +1722,22 @@ function LearningTab() {
       )}
 
       {report && report.topLessons.length > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📈 AI Evolution — Lessons Learned</div>
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📈 AI Evolution — Lessons Learned</div>
           <div className="space-y-2">
             {report.topLessons.map((lesson, i) => (
-              <div key={i} className="flex items-start gap-2 text-[8px] font-mono">
+              <div key={i} className="flex items-start gap-2 text-[10px] font-mono">
                 <span className="text-emerald-500 mt-0.5">▸</span>
                 <span className="text-slate-300">{lesson}</span>
               </div>
             ))}
           </div>
           {report.recommendations.length > 0 && (
-            <div className="mt-4 p-3 bg-slate-950/60 rounded-lg border border-slate-800/50">
-              <div className="text-[7px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-2">🔄 Recommendations</div>
+            <div className="mt-4 p-3 bg-slate-800/60 rounded-lg border border-slate-700/50/50">
+              <div className="text-[10px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-2">🔄 Recommendations</div>
               <div className="space-y-1">
                 {report.recommendations.map((rec, i) => (
-                  <div key={i} className="flex items-start gap-2 text-[8px] font-mono">
+                  <div key={i} className="flex items-start gap-2 text-[10px] font-mono">
                     <span className="text-amber-500 mt-0.5">→</span>
                     <span className="text-slate-400">{rec}</span>
                   </div>
@@ -1749,10 +1749,10 @@ function LearningTab() {
       )}
 
       {snapshot.totalResolvedPredictions === 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-8 text-center">
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-8 text-center">
           <div className="text-3xl mb-2">🧠</div>
-          <div className="text-[10px] font-mono text-slate-500">AI learning engine is waiting for resolved predictions.</div>
-          <div className="text-[8px] font-mono text-slate-600 mt-1">As predictions expire and get resolved, the AI will analyze results and build statistical knowledge automatically.</div>
+          <div className="text-xs font-mono text-slate-500">AI learning engine is waiting for resolved predictions.</div>
+          <div className="text-[10px] font-mono text-slate-600 mt-1">As predictions expire and get resolved, the AI will analyze results and build statistical knowledge automatically.</div>
         </div>
       )}
     </div>
@@ -1787,29 +1787,29 @@ function DailyPredictionTab({
   return (
     <div className="space-y-3 animate-fade-in">
       {/* AI Experience Summary */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">AI Experience Engine</span>
-          <span className="text-[7px] font-mono text-slate-600 bg-slate-950 px-2 py-0.5 rounded-full border border-slate-800">
+          <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">AI Experience Engine</span>
+          <span className="text-[10px] font-mono text-slate-600 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700/50">
             Auto-learning {learningCounter > 0 ? `· ${learningCounter} cycles` : '—'}
           </span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[8px] font-mono">
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Predictions Stored</span>
             <span className="text-white font-bold text-xs block mt-1">{experienceStats.totalPreds}</span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Overall Accuracy</span>
             <span className={`font-bold text-xs block mt-1 ${experienceStats.overallAcc > 55 ? 'text-emerald-400' : experienceStats.overallAcc > 40 ? 'text-yellow-400' : 'text-red-400'}`}>
               {experienceStats.overallAcc.toFixed(1)}%
             </span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Tickers Tracked</span>
             <span className="text-white font-bold text-xs block mt-1">{experienceStats.tickerStats.length}</span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Today</span>
             <span className="text-white font-bold text-xs block mt-1">{dayName}</span>
           </div>
@@ -1817,27 +1817,27 @@ function DailyPredictionTab({
       </div>
 
       {/* Top ticker stats */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">AI Track Record by Ticker</span>
+          <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">AI Track Record by Ticker</span>
           {trackRows.length > 0 && (
-            <span className="text-[7px] font-mono text-slate-600">{trackRows.length} tickers</span>
+            <span className="text-[10px] font-mono text-slate-600">{trackRows.length} tickers</span>
           )}
         </div>
         {trackRows.length === 0 ? (
-          <p className="text-[8px] font-mono text-slate-500 text-center py-4">
+          <p className="text-[10px] font-mono text-slate-500 text-center py-4">
             No resolved predictions yet. Track record fills as the AI closes and scores past calls.
           </p>
         ) : (
           <>
             {multiSample === 0 && (
-              <p className="text-[7px] font-mono text-slate-500 mb-2">
+              <p className="text-[10px] font-mono text-slate-500 mb-2">
                 One prediction per ticker so far — accuracy bars become more reliable after 2+ resolved calls per symbol.
               </p>
             )}
             <div className="space-y-1 max-h-[220px] overflow-y-auto pr-1 custom-scrollbar">
               {trackRows.map(s => (
-                <div key={s.ticker} className="flex items-center gap-2 text-[7px] font-mono bg-slate-950/30 rounded-lg p-2 border border-slate-800/30">
+                <div key={s.ticker} className="flex items-center gap-2 text-[10px] font-mono bg-slate-800/30 rounded-lg p-2 border border-slate-700/50/30">
                   <span className="text-white font-bold w-14">{s.ticker}</span>
                   <div className="flex-1 bg-slate-800 rounded-full h-1.5">
                     <div className={`h-full rounded-full ${s.accuracy > 60 ? 'bg-emerald-500' : s.accuracy > 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
@@ -1847,7 +1847,7 @@ function DailyPredictionTab({
                     {s.total >= 2 ? `${s.accuracy.toFixed(0)}%` : '—'}
                   </span>
                   <span className="text-slate-600 w-16">({s.total}x)</span>
-                  <span className={`text-[6px] px-1 py-0.5 rounded ${s.trend === 'IMPROVING' ? 'bg-emerald-950/30 text-emerald-500' : s.trend === 'DECLINING' ? 'bg-red-950/30 text-red-500' : 'bg-slate-950/30 text-slate-500'}`}>{s.trend}</span>
+                  <span className={`text-[6px] px-1 py-0.5 rounded ${s.trend === 'IMPROVING' ? 'bg-emerald-950/30 text-emerald-500' : s.trend === 'DECLINING' ? 'bg-red-950/30 text-red-500' : 'bg-slate-800/30 text-slate-500'}`}>{s.trend}</span>
                   <span className="text-slate-600 hidden sm:inline">best: {s.bestRegime}</span>
                 </div>
               ))}
@@ -1857,16 +1857,16 @@ function DailyPredictionTab({
       </div>
 
       {/* Daily Recommendations */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-3">
-          <span className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono">AI Daily Market Prediction</span>
-          <span className="text-[7px] font-mono text-slate-600">{dailyRecs.length} stocks analyzed</span>
+          <span className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono">AI Daily Market Prediction</span>
+          <span className="text-[10px] font-mono text-slate-600">{dailyRecs.length} stocks analyzed</span>
         </div>
 
         {dailyRecs.length === 0 ? (
-          <div className="p-4 bg-slate-950/40 rounded-lg border border-slate-800/40 text-center">
+          <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700/50/40 text-center">
             <div className="text-2xl mb-1">📡</div>
-            <div className="text-[9px] font-mono text-slate-500">Waiting for market data...</div>
+            <div className="text-xs font-mono text-slate-500">Waiting for market data...</div>
           </div>
         ) : (
           <div className="space-y-2 max-h-[500px] overflow-y-auto pr-1 custom-scrollbar">
@@ -1879,17 +1879,17 @@ function DailyPredictionTab({
                 ? ((rec.targetPrice - rec.entryPrice) / rec.entryPrice * 100) : 0;
 
               return (
-                <div key={rec.ticker} className="p-3 border border-slate-800/80 bg-slate-950/30 rounded-xl hover:bg-slate-950/50 transition-all">
+                <div key={rec.ticker} className="p-3 border border-slate-700/50/80 bg-slate-800/30 rounded-xl hover:bg-slate-800/50 transition-all">
                   <div className="flex items-start justify-between flex-wrap gap-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold font-mono text-white">{rec.ticker}</span>
-                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-full ${recColor}`}>{recType}</span>
-                      <span className={`text-[8px] px-1.5 py-0.5 rounded-full border ${dirColor}`}>{rec.direction}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${recColor}`}>{recType}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${dirColor}`}>{rec.direction}</span>
                       {stock?.price > 0 && (
-                        <LiveTickerPrice ticker={rec.ticker} stocks={stocks} decimals={2} className="text-[8px] text-slate-300" showChange />
+                        <LiveTickerPrice ticker={rec.ticker} stocks={stocks} decimals={2} className="text-[10px] text-slate-300" showChange />
                       )}
                     </div>
-                    <div className="flex items-center gap-2 text-[8px] font-mono">
+                    <div className="flex items-center gap-2 text-[10px] font-mono">
                       <span className="text-slate-500">Target:</span>
                       <span className="font-bold text-white">${rec.targetPrice.toFixed(2)}</span>
                       <span className={`font-bold ${pctUpside > 0 ? 'text-emerald-400' : pctUpside < 0 ? 'text-red-400' : 'text-slate-400'}`}>
@@ -1901,7 +1901,7 @@ function DailyPredictionTab({
                   {/* Confidence with experience boost */}
                   <div className="flex items-center gap-2 mt-2">
                     <div className="flex-1">
-                      <div className="flex justify-between text-[7px] font-mono mb-0.5">
+                      <div className="flex justify-between text-[10px] font-mono mb-0.5">
                         <span className="text-emerald-400">Confidence {rec.confidence}%</span>
                         {rec.experienceBoost > 0 && <span className="text-blue-400">+{rec.experienceBoost}% from experience</span>}
                         {rec.experienceBoost < 0 && <span className="text-red-400">{rec.experienceBoost}% from experience</span>}
@@ -1910,17 +1910,17 @@ function DailyPredictionTab({
                         <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${Math.max(0, Math.min(100, rec.confidence))}%` }} />
                       </div>
                     </div>
-                    <span className="text-[7px] text-slate-500 font-mono">{rec.regime.replace(/_/g, ' ')}</span>
-                    <span className="text-[7px] text-slate-500 font-mono">{rec.totalPatternMatches} patterns</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{rec.regime.replace(/_/g, ' ')}</span>
+                    <span className="text-[10px] text-slate-500 font-mono">{rec.totalPatternMatches} patterns</span>
                   </div>
 
                   {/* Reasoning */}
-                  <div className="mt-1.5 text-[7px] font-mono text-slate-400 leading-relaxed">
+                  <div className="mt-1.5 text-[10px] font-mono text-slate-400 leading-relaxed">
                     {rec.reasoning.map((r, i) => <span key={i}>{i > 0 && ' · '}{r}</span>)}
                   </div>
 
                   {/* Stop loss */}
-                  <div className="mt-1 text-[7px] font-mono text-slate-600">
+                  <div className="mt-1 text-[10px] font-mono text-slate-600">
                     SL: ${rec.stopLoss.toFixed(2)} · Risk: {rec.entryPrice > 0 ? (Math.abs(rec.stopLoss - rec.entryPrice) / rec.entryPrice * 100).toFixed(1) : '0'}%
                   </div>
                 </div>
@@ -1932,14 +1932,14 @@ function DailyPredictionTab({
 
       {/* Pattern highlights */}
       {dailyRecs.length > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-3">🔍 AI Pattern Discoveries</div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[7px] font-mono">
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-3">🔍 AI Pattern Discoveries</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
             {dailyRecs.slice(0, 6).map(rec => {
               const stats = getTickerStats(rec.ticker);
               if (stats.total < 2) return null;
               return (
-                <div key={rec.ticker} className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40">
+                <div key={rec.ticker} className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40">
                   <span className="text-white font-bold">{rec.ticker}</span>
                   <div className="text-slate-400 mt-1">
                     {stats.bestRegime && <span>Best regime: {stats.bestRegime} · </span>}
@@ -1992,7 +1992,7 @@ function SessionSignalsTab({
     OPENING: 'text-yellow-400 bg-yellow-950/30 border-yellow-900/40',
     MIDDAY: 'text-emerald-400 bg-emerald-950/30 border-emerald-900/40',
     CLOSING: 'text-red-400 bg-red-950/30 border-red-900/40',
-    POST_MARKET: 'text-slate-400 bg-slate-950/30 border-slate-900/40',
+    POST_MARKET: 'text-slate-400 bg-slate-800/30 border-slate-900/40',
   };
   const signalColors: Record<string, string> = {
     BUY: 'text-emerald-400 border-emerald-900/40 bg-emerald-950/20',
@@ -2005,57 +2005,57 @@ function SessionSignalsTab({
   return (
     <div className="space-y-3 animate-fade-in">
       {/* Current session status */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-        <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⏰ Live Market Session</div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[8px] font-mono">
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+        <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">⏰ Live Market Session</div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-[10px] font-mono">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Session</span>
-            <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${sessionColors[sessionState.session] || 'text-slate-400'}`}>{sessionState.session.replace('_', ' ')}</span>
+            <span className={`inline-block mt-1 text-xs font-bold px-2 py-0.5 rounded-full border ${sessionColors[sessionState.session] || 'text-slate-400'}`}>{sessionState.session.replace('_', ' ')}</span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Day</span>
             <span className="text-white font-bold text-xs block mt-1">{dayName}</span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Min Since Open</span>
             <span className="text-white font-bold text-xs block mt-1">{sessionState.minutesSinceOpen}</span>
           </div>
-          <div className="bg-slate-950/40 rounded-lg p-2.5 border border-slate-800/40 text-center">
+          <div className="bg-slate-800/40 rounded-lg p-2.5 border border-slate-700/50/40 text-center">
             <span className="text-slate-500 block">Min To Close</span>
             <span className="text-white font-bold text-xs block mt-1">{isMarketOpen ? sessionState.minutesToClose : '—'}</span>
           </div>
         </div>
         {sessionState.isOpeningHalfHour && (
-          <div className="mt-3 p-2 bg-yellow-950/20 border border-yellow-900/30 rounded-lg text-[8px] font-mono text-yellow-400">⚡ Opening half-hour — high volatility, wait for first 30-min candle to confirm direction</div>
+          <div className="mt-3 p-2 bg-yellow-950/20 border border-yellow-900/30 rounded-lg text-[10px] font-mono text-yellow-400">⚡ Opening half-hour — high volatility, wait for first 30-min candle to confirm direction</div>
         )}
         {sessionState.isClosingHalfHour && (
-          <div className="mt-3 p-2 bg-red-950/20 border border-red-900/30 rounded-lg text-[8px] font-mono text-red-400">⚠️ Closing half-hour — institutional squaring, avoid new entries, tighten stops</div>
+          <div className="mt-3 p-2 bg-red-950/20 border border-red-900/30 rounded-lg text-[10px] font-mono text-red-400">⚠️ Closing half-hour — institutional squaring, avoid new entries, tighten stops</div>
         )}
         {!isMarketOpen && (
-          <div className="mt-3 p-2 bg-blue-950/20 border border-blue-900/30 rounded-lg text-[8px] font-mono text-blue-400">🔒 Market closed — all predictions anchored to last closing price</div>
+          <div className="mt-3 p-2 bg-blue-950/20 border border-blue-900/30 rounded-lg text-[10px] font-mono text-blue-400">🔒 Market closed — all predictions anchored to last closing price</div>
         )}
       </div>
 
       {/* Session-based trading signal */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-        <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🎯 Session Trading Signal</div>
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+        <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🎯 Session Trading Signal</div>
         <div className="flex items-center gap-4 mb-3">
-          <span className={`text-lg font-bold font-mono px-3 py-1 rounded-lg border ${signalColors[sessionSignal.type] || 'text-slate-400 border-slate-800'}`}>
+          <span className={`text-lg font-bold font-mono px-3 py-1 rounded-lg border ${signalColors[sessionSignal.type] || 'text-slate-400 border-slate-700/50'}`}>
             {sessionSignal.type === 'BUY' ? '📈' : sessionSignal.type === 'SELL' ? '📉' : '⏸️'} {sessionSignal.type}
           </span>
           <div className="flex-1">
-            <div className="text-[9px] font-mono text-slate-400">{sessionSignal.reason}</div>
+            <div className="text-xs font-mono text-slate-400">{sessionSignal.reason}</div>
             <div className="flex items-center gap-2 mt-1">
-              <span className="text-[8px] text-slate-500">Confidence</span>
+              <span className="text-[10px] text-slate-500">Confidence</span>
               <div className="flex-1 bg-slate-800 rounded-full h-1.5 max-w-[120px]">
                 <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${sessionSignal.confidence}%` }} />
               </div>
-              <span className="text-[9px] text-white font-bold">{sessionSignal.confidence}%</span>
+              <span className="text-xs text-white font-bold">{sessionSignal.confidence}%</span>
             </div>
           </div>
         </div>
         {daySignal && (
-          <div className="flex items-center gap-2 text-[8px] font-mono text-slate-400 bg-slate-950/40 p-2 rounded-lg border border-slate-800/40">
+          <div className="flex items-center gap-2 text-[10px] font-mono text-slate-400 bg-slate-800/40 p-2 rounded-lg border border-slate-700/50/40">
             <span className="text-slate-500">{dayName}:</span>
             <span>{daySignal.reason}</span>
           </div>
@@ -2064,8 +2064,8 @@ function SessionSignalsTab({
 
       {/* Market regime overview from active tickers */}
       {Object.keys(taData).length > 0 && (
-        <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-          <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🌡️ Live Regime Map</div>
+        <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+          <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">🌡️ Live Regime Map</div>
           <div className="space-y-1.5 max-h-[240px] overflow-y-auto pr-1 custom-scrollbar">
             {Object.entries(taData).slice(0, 20).map(([ticker, ta]) => {
               const regime = classifyRegime(ta, historyCache(ticker) || [], sessionState.session);
@@ -2076,12 +2076,12 @@ function SessionSignalsTab({
               };
               const stock = stocks[ticker];
               return (
-                <div key={ticker} className="flex items-center gap-2 text-[8px] font-mono bg-slate-950/30 rounded-lg p-2 border border-slate-800/30">
+                <div key={ticker} className="flex items-center gap-2 text-[10px] font-mono bg-slate-800/30 rounded-lg p-2 border border-slate-700/50/30">
                   <span className="text-white font-bold w-16">{ticker}</span>
                   <span className={`font-bold ${regimeColors[regime.regime] || 'text-slate-400'}`}>{regime.regime.replace(/_/g, ' ')}</span>
                   <span className="text-slate-500">{regime.volatilityLevel} vol</span>
                   <span className="text-slate-600 flex-1 truncate">{regime.description}</span>
-                  <span className={`text-[7px] px-1.5 py-0.5 rounded border ${regime.regimeConfidence > 60 ? 'text-emerald-500 border-emerald-900/30 bg-emerald-950/20' : 'text-yellow-500 border-yellow-900/30 bg-yellow-950/20'}`}>{regime.regimeConfidence}%</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded border ${regime.regimeConfidence > 60 ? 'text-emerald-500 border-emerald-900/30 bg-emerald-950/20' : 'text-yellow-500 border-yellow-900/30 bg-yellow-950/20'}`}>{regime.regimeConfidence}%</span>
                   {stock?.price && <span className="text-slate-400"><SmoothPrice value={stock.price} decimals={2} prefix={tickerCurrency(ticker)} /></span>}
                 </div>
               );
@@ -2091,14 +2091,14 @@ function SessionSignalsTab({
       )}
 
       {/* Day-of-week stats & recommendations */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-        <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📅 Weekly Session Guide</div>
-        <div className="grid grid-cols-5 gap-2 text-[7px] font-mono">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+        <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📅 Weekly Session Guide</div>
+        <div className="grid grid-cols-5 gap-2 text-[10px] font-mono">
           {['Mon','Tue','Wed','Thu','Fri'].map((d, i) => {
             const isToday = sessionState.dayOfWeek === i + 1;
             const sig = getDayOfWeekSignal(i + 1);
             return (
-              <div key={d} className={`rounded-lg p-2 border text-center ${isToday ? 'bg-emerald-950/20 border-emerald-900/40' : 'bg-slate-950/30 border-slate-800/30'}`}>
+              <div key={d} className={`rounded-lg p-2 border text-center ${isToday ? 'bg-emerald-950/20 border-emerald-900/40' : 'bg-slate-800/30 border-slate-700/50/30'}`}>
                 <div className={`font-bold ${isToday ? 'text-emerald-400' : 'text-slate-500'}`}>{d}</div>
                 {sig && (
                   <>
@@ -2113,11 +2113,11 @@ function SessionSignalsTab({
       </div>
 
       {/* Regime recommendations */}
-      <div className="border border-slate-800 bg-slate-900/20 rounded-2xl p-5">
-        <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📋 Regime Playbook</div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[7px] font-mono">
+      <div className="border border-slate-700/50 bg-slate-800/20 rounded-2xl p-5">
+        <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-4">📋 Regime Playbook</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[10px] font-mono">
           {(['STRONG_TREND','WEAK_TREND','RANGING','BREAKOUT','PANIC','HIGH_VOLATILITY'] as const).map(r => (
-            <div key={r} className="bg-slate-950/30 rounded-lg p-2 border border-slate-800/30 flex justify-between items-center">
+            <div key={r} className="bg-slate-800/30 rounded-lg p-2 border border-slate-700/50/30 flex justify-between items-center">
               <span className="text-slate-400">{r.replace(/_/g, ' ')}</span>
               <span className="text-slate-500">{getRegimeRecommendation(r)}</span>
             </div>
@@ -2206,7 +2206,7 @@ function StrategiesTab({
 
   return (
     <div className="space-y-5 animate-fade-in">
-      <div className="text-[9px] uppercase font-bold text-slate-500 tracking-widest font-mono mb-3">⚡ AI Strategy Engine</div>
+      <div className="text-xs uppercase font-bold text-slate-500 tracking-widest font-mono mb-3">⚡ AI Strategy Engine</div>
       {(['SCALPING', 'DAY_TRADING', 'SWING', 'POSITION'] as const).map(style => {
         const items = grouped[style];
         const meta = styleMeta[style];
@@ -2216,42 +2216,42 @@ function StrategiesTab({
             <div className="flex items-center justify-between mb-3">
               <div>
                 <span className="text-sm font-bold font-mono text-white">{meta.label}</span>
-                <span className="text-[8px] text-slate-500 font-mono ml-2">{meta.description}</span>
+                <span className="text-[10px] text-slate-500 font-mono ml-2">{meta.description}</span>
               </div>
-              <span className="text-[9px] text-slate-500 font-mono">{items.length} picks</span>
+              <span className="text-xs text-slate-500 font-mono">{items.length} picks</span>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
               {items.slice(0, 6).map(r => (
-                <div key={r.ticker} className="bg-slate-950/40 border border-slate-800/60 rounded-xl p-3 hover:border-slate-700/80 transition-all">
+                <div key={r.ticker} className="bg-slate-800/40 border border-slate-700/50/60 rounded-xl p-3 hover:border-slate-700/80 transition-all">
                   <div className="flex items-start justify-between mb-2">
                     <div>
                       <span className="text-xs font-bold font-mono text-white">{r.ticker}</span>
-                      <span className="text-[7px] text-slate-500 font-mono ml-1">{r.name}</span>
+                      <span className="text-[10px] text-slate-500 font-mono ml-1">{r.name}</span>
                     </div>
                     <div className="flex items-center gap-1">
-                      <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${actionColors[r.action]}`}>{r.action.replace('_', ' ')}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${actionColors[r.action]}`}>{r.action.replace('_', ' ')}</span>
                       {r.vetoed && <span className="text-[6px] font-mono text-red-400 bg-red-950/30 border border-red-800/40 px-1 py-0.5 rounded">VETOED</span>}
                     </div>
                   </div>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-[7px] text-slate-500 font-mono uppercase">Live</span>
+                    <span className="text-[10px] text-slate-500 font-mono uppercase">Live</span>
                     <LiveTickerPrice ticker={r.ticker} stocks={priceMap} fallback={r.price} decimals={2} className="text-sm font-bold text-white" showChange />
                   </div>
-                  <div className="grid grid-cols-3 gap-1 mb-2 text-[8px] font-mono">
-                    <div className="bg-slate-950 rounded p-1 text-center">
+                  <div className="grid grid-cols-3 gap-1 mb-2 text-[10px] font-mono">
+                    <div className="bg-slate-800 rounded p-1 text-center">
                       <span className="text-slate-600 block">Entry</span>
                       <span className="text-white font-bold">{tickerCurrency(r.ticker)}{r.entryPrice.toFixed(2)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded p-1 text-center">
+                    <div className="bg-slate-800 rounded p-1 text-center">
                       <span className="text-slate-600 block">Target</span>
                       <span className="text-emerald-400 font-bold">{tickerCurrency(r.ticker)}{r.targetPrice.toFixed(2)}</span>
                     </div>
-                    <div className="bg-slate-950 rounded p-1 text-center">
+                    <div className="bg-slate-800 rounded p-1 text-center">
                       <span className="text-slate-600 block">Stop</span>
                       <span className="text-red-400 font-bold">{tickerCurrency(r.ticker)}{r.stopLoss.toFixed(2)}</span>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between text-[7px] font-mono">
+                  <div className="flex items-center justify-between text-[10px] font-mono">
                     <span className={`px-1.5 py-0.5 rounded border ${
                       r.riskLevel === 'LOW' ? 'border-emerald-900/40 text-emerald-500' :
                       r.riskLevel === 'HIGH' ? 'border-red-900/40 text-red-500' :
@@ -2260,7 +2260,7 @@ function StrategiesTab({
                     <span className="text-slate-500">{r.confidence}% conf</span>
                     <span className="text-slate-600">{r.holdPeriod}</span>
                   </div>
-                  <div className="mt-2 text-[7px] text-slate-500 font-mono leading-tight bg-slate-950/30 rounded p-1.5 border border-slate-800/30">
+                  <div className="mt-2 text-[10px] text-slate-500 font-mono leading-tight bg-slate-800/30 rounded p-1.5 border border-slate-700/50/30">
                     {r.catalyst}
                   </div>
                 </div>
@@ -2270,7 +2270,7 @@ function StrategiesTab({
         );
       })}
       {strategies.length === 0 && (
-        <div className="text-center py-10 text-slate-600 font-mono text-[10px]">
+        <div className="text-center py-10 text-slate-600 font-mono text-xs">
           No strategy recommendations available — waiting for predictions with sufficient data.
         </div>
       )}

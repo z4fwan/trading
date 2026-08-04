@@ -17,6 +17,17 @@ async function pingSupabase() {
   }
 }
 
+async function pingPythonBackend() {
+  try {
+    const res = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return { reachable: false, error: `HTTP ${res.status}` };
+    const data = await res.json();
+    return { reachable: true, ...data };
+  } catch (e) {
+    return { reachable: false, error: String(e).slice(0, 100) };
+  }
+}
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -31,19 +42,24 @@ export async function GET() {
   const aiAge = engine.lastAILearning ? now - engine.lastAILearning : -1;
   const engineUptime = engine.startedAt ? now - engine.startedAt : 0;
   const quotes = getQuoteCacheStats();
-  const supabasePing = await pingSupabase();
+  const [supabasePing, pythonPing] = await Promise.all([pingSupabase(), pingPythonBackend()]);
   const yahooErrors = engine.errors.filter(e => e.startsWith('quote-fetch')).length;
   const healthy = engine.running && quoteAge < 10000 && envHealthy()
     && quotes.pricedStocks >= 50;
 
   return Response.json({
     status: healthy ? 'healthy' : 'degraded',
-    version: '2.0.0',
+    version: '3.0.0',
     platform: process.env.RENDER ? 'render' : process.env.VERCEL ? 'vercel' : 'unknown',
     uptime,
     uptimeHuman: `${Math.floor(uptime / 86400)}d ${Math.floor((uptime % 86400) / 3600)}h ${Math.floor((uptime % 3600) / 60)}m`,
     timestamp: now,
-    env: { valid: envHealthy() },
+    env: {
+      valid: envHealthy(),
+      supabase: !!process.env.SUPABASE_SERVICE_KEY,
+      telegram: !!(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID),
+      ollama: !!process.env.OLLAMA_BASE_URL,
+    },
     engine: {
       running: engine.running,
       engineUptime: engineUptime > 0 ? `${Math.round(engineUptime / 1000)}s` : 'n/a',
@@ -70,6 +86,14 @@ export async function GET() {
           : 'never',
       },
       supabase: supabasePing,
+      pythonBackend: {
+        reachable: pythonPing.reachable,
+        version: pythonPing.version || null,
+        modelsLoaded: pythonPing.ml?.models_loaded || 0,
+        champion: pythonPing.ml?.champion || null,
+        trainingCache: pythonPing.training_cache?.cached_tickers || 0,
+        error: pythonPing.error || null,
+      },
       yahooErrorCount: yahooErrors,
       macroShock: engine.macroShockActive ? engine.macroShockInfo : null,
       aiLearningResult: engine.aiLearningResult || null,
@@ -99,7 +123,54 @@ export async function GET() {
       offline: {
         playbook: engine.marketOfflinePlaybook || null,
         lastAnalysisAge: engine.lastMarketOfflineAnalysis ? `${Math.round((now - engine.lastMarketOfflineAnalysis) / 60000)}min ago` : 'never',
-      }
+      },
+      socialSentiment: {
+        tickersTracked: engine.socialSentimentTickers,
+        trendingCount: engine.socialSentimentTrending,
+        lastCycleAge: engine.lastSocialSentimentCycle ? `${Math.round((now - engine.lastSocialSentimentCycle) / 60000)}min ago` : 'never',
+        result: engine.socialSentimentResult || null,
+      },
+      globalEvents: {
+        sec: {
+          filings: engine.secFilingsCount,
+          lastScanAge: engine.lastSECCycle ? `${Math.round((now - engine.lastSECCycle) / 60000)}min ago` : 'never',
+        },
+        earnings: {
+          upcoming14d: engine.earningsUpcoming,
+          lastScanAge: engine.lastEarningsCycle ? `${Math.round((now - engine.lastEarningsCycle) / 60000)}min ago` : 'never',
+        },
+        economicCalendar: {
+          imminentHighImpact: engine.econEventsImminent,
+          lastScanAge: engine.lastEconCalendarCycle ? `${Math.round((now - engine.lastEconCalendarCycle) / 60000)}min ago` : 'never',
+        },
+        crypto: {
+          marketCap: engine.cryptoMarketCap,
+          btCDominance: engine.cryptoBTCDominance,
+          lastScanAge: engine.lastCoinGeckoCycle ? `${Math.round((now - engine.lastCoinGeckoCycle) / 60000)}min ago` : 'never',
+        },
+        optionsFlow: {
+          tickersScanned: engine.optionsFlowTickers,
+          alertsFound: engine.optionsFlowAlerts,
+          lastScanAge: engine.lastOptionsFlowCycle ? `${Math.round((now - engine.lastOptionsFlowCycle) / 60000)}min ago` : 'never',
+        },
+        backtesting: {
+          strategies: engine.backtestStrategies,
+          bestWinRate: engine.backtestBestWinRate,
+          bestStrategy: engine.backtestBestStrategy,
+          lastCycleAge: engine.lastBacktestCycle ? `${Math.round((now - engine.lastBacktestCycle) / 60000)}min ago` : 'never',
+        },
+        quantStrategies: {
+          signalsGenerated: engine.quantSignalsGenerated,
+          activeStrategies: engine.quantActiveStrategies,
+          lastCycleAge: engine.lastQuantCycle ? `${Math.round((now - engine.lastQuantCycle) / 60000)}min ago` : 'never',
+        },
+        riskManagement: {
+          positions: engine.riskPositions,
+          sharpeRatio: engine.riskSharpe,
+          maxDrawdown: engine.riskMaxDrawdown,
+          lastCycleAge: engine.lastRiskCycle ? `${Math.round((now - engine.lastRiskCycle) / 60000)}min ago` : 'never',
+        },
+      },
     },
   });
 }

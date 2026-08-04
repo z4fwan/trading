@@ -1,7 +1,8 @@
 import YahooFinance from 'yahoo-finance2';
 import { type OHLC } from '@/lib/technicalAnalysis';
 
-const yahooFinance = new YahooFinance();
+const yahooFinance = new YahooFinance({ validation: { logErrors: false } });
+
 
 const cache = new Map<string, { data: unknown; expiry: number }>();
 const CACHE_TTL_MS = 300_000;

@@ -11,8 +11,8 @@ export default function LiveMarketPrices() {
   const { stocks, connectionStatus, market, lastFetchAt, feedPulse, pricesStreaming } = useMarketData();
   const feed = getFeedStatusDisplay(connectionStatus, pricesStreaming, market.phase);
   const connected = connectionStatus !== 'disconnected';
-  const [filterMarket, setFilterMarket] = useState<'ALL' | 'INDIAN' | 'INTERNATIONAL'>('ALL');
-  const [sortBy, setSortBy] = useState<'changePercent' | 'volume' | 'price'>('changePercent');
+  const [filterMarket, setFilterMarket] = useState<'ALL' | 'INDIAN'>('ALL');
+  const [sortBy, setSortBy] = useState<'changePercent' | 'volume' | 'price' | 'change'>('changePercent');
   const [pollAgeSec, setPollAgeSec] = useState(0);
 
   const normalizedStocks = useMemo(() => normalizeStocksMap(stocks), [stocks]);
@@ -42,6 +42,7 @@ export default function LiveMarketPrices() {
         const sb = b.data!;
         if (sortBy === 'volume') return sb.volume - sa.volume;
         if (sortBy === 'price') return quoteDisplayPrice(sb) - quoteDisplayPrice(sa);
+        if (sortBy === 'change') return Math.abs(sb.change) - Math.abs(sa.change);
         return Math.abs(sb.changePercent) - Math.abs(sa.changePercent);
       });
   }, [allStocks, filterMarket, sortBy]);
@@ -52,11 +53,8 @@ export default function LiveMarketPrices() {
   );
 
   const pricedIndian = allStocks.filter(s => s.market === 'INDIAN' && s.ready);
-  const pricedIntl = allStocks.filter(s => s.market === 'INTERNATIONAL' && s.ready);
   const indianUp = pricedIndian.filter(s => s.data!.change > 0).length;
   const indianDown = pricedIndian.filter(s => s.data!.change < 0).length;
-  const intlUp = pricedIntl.filter(s => s.data!.change > 0).length;
-  const intlDown = pricedIntl.filter(s => s.data!.change < 0).length;
 
   const count = filtered.length;
   const totalListed = allStocks.filter(s => filterMarket === 'ALL' || s.market === filterMarket).length;
@@ -82,7 +80,7 @@ export default function LiveMarketPrices() {
             )}
           </h2>
           <p className="text-[9px] text-slate-500 font-mono">
-            {INDIAN_UNIVERSE_LABEL} · Yahoo Finance
+            {INDIAN_UNIVERSE_LABEL} · Live Exchange Feed
             {lastFetchAt > 0 && <span className="ml-1">· <span className="tabular-nums">{pollAgeSec}s</span> ago</span>}
             · feed <span className="tabular-nums text-slate-400 font-bold">#{feedPulse}</span>
             {connectionStatus === 'disconnected' && <span className="text-red-400 ml-2">⚠️ No connection</span>}
@@ -90,30 +88,32 @@ export default function LiveMarketPrices() {
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-slate-950 border border-slate-800 rounded-lg p-0.5">
-            {(['ALL', 'INDIAN', 'INTERNATIONAL'] as const).map(m => (
-              <button key={m} onClick={() => setFilterMarket(m)}
-                className={`px-3 py-1 text-[9px] font-bold rounded-lg transition-all ${
-                  filterMarket === m ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'text-slate-500 hover:text-white'
-                }`}>
-                {m === 'ALL' ? 'ALL' : m === 'INDIAN' ? 'INDIAN' : 'INTL'}
+            {(['ALL', 'INDIAN'] as const).map(m => (
+              <button
+                key={m}
+                onClick={() => setFilterMarket(m)}
+                className={`px-3 py-1 text-xs rounded-full transition-all ${
+                  filterMarket === m ? 'bg-cyan-900/60 text-cyan-400 border border-cyan-800' : 'bg-slate-800/40 text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {m === 'ALL' ? 'ALL' : 'NSE/BSE'}
               </button>
             ))}
           </div>
-          <select id="live-prices-sort" name="livePricesSort" value={sortBy} onChange={e => setSortBy(e.target.value as 'changePercent' | 'volume' | 'price')}
+          <select id="live-prices-sort" name="livePricesSort" value={sortBy} onChange={e => setSortBy(e.target.value as 'changePercent' | 'volume' | 'price' | 'change')}
             className="bg-slate-950 border border-slate-800 rounded-lg px-2 py-1 text-[9px] font-mono text-slate-400 outline-none focus:border-emerald-500/50">
             <option value="changePercent">Sort: Movement</option>
+            <option value="change">Sort: Price Δ</option>
             <option value="volume">Sort: Volume</option>
             <option value="price">Sort: Price</option>
           </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         {[
-          { label: 'IN Advancers', value: indianUp, color: 'text-emerald-400' },
-          { label: 'IN Decliners', value: indianDown, color: 'text-red-400' },
-          { label: 'INTL Advancers', value: intlUp, color: 'text-emerald-400' },
-          { label: 'INTL Decliners', value: intlDown, color: 'text-red-400' },
+          { label: 'IN Up', value: indianUp, color: 'text-emerald-400' },
+          { label: 'IN Down', value: indianDown, color: 'text-red-400' },
         ].map((item, i) => (
           <div key={i} className="border border-slate-800 bg-slate-900/10 rounded-xl p-3 text-center">
             <div className="text-[8px] text-slate-500 uppercase font-mono font-bold">{item.label}</div>
@@ -139,18 +139,18 @@ export default function LiveMarketPrices() {
         </div>
 
         <div className="max-h-[600px] overflow-y-auto custom-scrollbar">
-          {filtered.map(({ ticker, data: s, market: mkt }) => {
+          {filtered.slice(0, 100).map(({ ticker, data: s, market: mkt }) => {
             const price = quoteDisplayPrice(s);
             const dayRange = s.high - s.low || 1;
             const posFromLow = ((price - s.low) / dayRange) * 100;
-            const currency = mkt === 'INDIAN' ? '₹' : '$';
+            const currency = '₹';
             return (
               <div key={ticker} className={`grid grid-cols-6 sm:grid-cols-10 lg:grid-cols-12 gap-1 sm:gap-2 px-2 sm:px-4 py-2 sm:py-2.5 text-[8px] sm:text-[10px] font-mono items-center hover:bg-slate-800/20 border-b border-slate-800/20 ${
                 s.change >= 0 ? 'bg-emerald-950/5' : 'bg-red-950/5'
               }`}>
                 <div className="col-span-1 font-bold text-white flex items-center gap-1 truncate" title={ticker}>
-                  <span className={`hidden sm:inline text-[7px] font-bold ${mkt === 'INDIAN' ? 'text-orange-400' : 'text-blue-400'}`}>
-                    {mkt === 'INDIAN' ? 'IN' : 'US'}
+                  <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded-sm bg-slate-800 text-orange-400`}>
+                    IN
                   </span>
                   {ticker}
                 </div>

@@ -3,7 +3,7 @@ import { parseAuthCookieValue } from '@/lib/authCookie';
 
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute
-const MAX_REQUESTS_PER_MINUTE = 50;
+const MAX_REQUESTS_PER_MINUTE = 300;
 
 export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;

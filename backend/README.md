@@ -73,13 +73,13 @@ python main.py
 
 # Option 2: Run components separately
 # Terminal 1: Start FastAPI server (includes poller)
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8080
 
 # Terminal 2: Run daily reconciliation (add to cron)
 python reconciliation.py
 
 # For production deployment:
-gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+gunicorn main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8080
 ```
 
 ### Daily Reconciliation (Auto-Learning)
@@ -95,7 +95,7 @@ Add to crontab for daily execution at 16:00 IST:
 
 ### WebSocket (Real-time Feed)
 ```
-ws://localhost:8000/ws/announcements
+ws://localhost:8080/ws/announcements
 ```
 
 ### REST Endpoints

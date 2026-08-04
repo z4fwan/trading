@@ -33,6 +33,9 @@ class SimulatedProvider(DataProvider):
     """
     
     def __init__(self, seed: int = 42):
+        import os
+        if os.environ.get('NODE_ENV') == 'production':
+            raise RuntimeError("CRITICAL: SimulatedProvider is strictly forbidden in production mode.")
         self.seed = seed
         np.random.seed(seed)
         

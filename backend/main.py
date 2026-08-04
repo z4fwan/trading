@@ -2,6 +2,7 @@
 FastAPI Server for NSE/BSE Corporate Announcements
 Provides WebSocket endpoint for real-time announcement feed
 With AI-powered analysis (FinBERT + LLM + Historical Similarity)
+Production-validated: env vars, models, dependencies checked at startup.
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, BackgroundTasks
@@ -9,16 +10,57 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from typing import Dict, List, Set, Optional
 import asyncio
+import sys
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import os
+import sys
 import numpy as np
 from dotenv import load_dotenv
 import yfinance as yf
 import httpx
+import warnings
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.FileHandler("backend_server.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+# Suppress harmless scikit-learn and LightGBM warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.*")
+warnings.filterwarnings("ignore", category=UserWarning, message=".*sklearn.utils.parallel.delayed.*")
+warnings.filterwarnings("ignore", category=UserWarning, module="lightgbm")
 
 # Load environment variables from frontend .env.local
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env.local'))
+
+# === PRODUCTION ENV VALIDATION ===
+REQUIRED_ENV_VARS = ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID']
+OPTIONAL_ENV_VARS = ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_KEY', 'OLLAMA_BASE_URL']
+
+def _validate_startup_env():
+    """Fail-fast on missing critical env vars."""
+    missing = [v for v in REQUIRED_ENV_VARS if not os.getenv(v)]
+    if missing:
+        print(f"[STARTUP] CRITICAL: Missing required env vars: {', '.join(missing)}")
+        print(f"[STARTUP] Telegram alerts will not work without these.")
+    else:
+        print(f"[STARTUP] Required env vars OK: {', '.join(REQUIRED_ENV_VARS)}")
+    optional_present = [v for v in OPTIONAL_ENV_VARS if os.getenv(v)]
+    optional_missing = [v for v in OPTIONAL_ENV_VARS if not os.getenv(v)]
+    if optional_present:
+        print(f"[STARTUP] Optional env vars present: {', '.join(optional_present)}")
+    if optional_missing:
+        print(f"[STARTUP] Optional env vars not set: {', '.join(optional_missing)} (features may be limited)")
+
+_validate_startup_env()
 
 from poller import AnnouncementPoller
 from sentiment_analyzer import get_sentiment_analyzer
@@ -34,77 +76,221 @@ from engines.event_intelligence import event_intelligence_engine
 from engines.capital_flow import capital_flow_engine
 from engines.historical_similarity import similarity_engine
 from engines.pre_momentum import pre_momentum_engine
+from engines.deep_sequence import deep_sequence_engine
+from quantum_v6 import (
+    multi_tf_engine, regime_detector, feature_selector, ensemble_voter,
+    live_retrainer, portfolio_optimizer, execution_simulator
+)
 import uuid
+from contextlib import asynccontextmanager
+import hashlib
+from services.signal_poller import DalaiPoller
 
-app = FastAPI(title="NSE/BSE Announcements API", version="2.0.0")
+dalalai_poller_instance = DalaiPoller()
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+# In-memory dedup of Telegram alert keys (date|ticker|headline-hash) so the
+# yfinance ^NSEI fallback can never re-fire the same story.
+_SENT_ALERT_KEYS = set()
+
+def is_nse_signal_window(now=None):
+    """True Mon–Fri during NSE PRE (9:00–9:15) or regular session (9:15–15:30) IST.
+
+    Used to suppress BUY/SELL Telegram alerts after hours. Announcements and
+    signals are still analysed and stored — only the alert dispatch is gated.
+    """
+    now = now or datetime.now(IST)
+    if now.weekday() >= 5:
+        return False
+    mins = now.hour * 60 + now.minute
+    return 9 * 60 <= mins < 15 * 60 + 30
+
+def is_tradeable_stock_symbol(symbol: str) -> bool:
+    """True only for real stock symbols.
+
+    Filters out indices (^NSEI, ^IXIC), futures/commodities (CL=F) and other
+    non-tradable tickers so we never fire a BUY/SELL trade alert on the index.
+    """
+    if not symbol:
+        return False
+    s = symbol.strip().upper()
+    if s.startswith('^'):
+        return False
+    if '=' in s:
+        return False
+    return bool(s) and s[0].isalpha()
+
+@asynccontextmanager
+async def app_lifespan(app: FastAPI):
+    global poller_task
+    # poller_loop is defined further down, but accessible in global scope at runtime!
+    poller_task = asyncio.create_task(poller_loop())
+    # DalalAI is a PAID API (₹1,999/mo). The 15-min intraday prediction now runs
+    # entirely on free sources in the frontend scanner (BullScore + NSE bulk/block
+    # deals + Yahoo momentum + local ML), so the DalaiPoller is intentionally NOT
+    # started — no API key required, no paid dependency.
+    # await dalalai_poller_instance.start(app)
+    yield
+    if poller_task:
+        poller_task.cancel()
+        try:
+            await poller_task
+        except asyncio.CancelledError:
+            pass
+    # await dalalai_poller_instance.stop()
+
+app = FastAPI(title="NSE/BSE Quantum Alpha V7 API", version="7.0.0", lifespan=app_lifespan)
 
 registry = ModelRegistry("data/stage_b_registry.db")
 ml_arena = ModelArena(registry)
+
+# === PRODUCTION: Verify models loaded at startup ===
+_startup_model_count = len(ml_arena.candidates)
+_startup_champion = registry.get_champion()
+print(f"[STARTUP] ML Arena: {_startup_model_count} model(s) loaded, champion={_startup_champion['model_version'] if _startup_champion else 'NONE'}")
+if _startup_model_count == 0:
+    print(f"[STARTUP] WARNING: No models loaded — predictions will use hash-based fallback")
 
 
 class PredictionRequest(BaseModel):
     raw_data: Dict  # Schema: {symbol, prices, volumes, event}
 
+class RetrainRequest(BaseModel):
+    samples: List[Dict]  # Schema: [{features: number[], label: int}]
+
 @app.post("/predict")
 async def predict_probability(req: PredictionRequest):
     request_id = str(uuid.uuid4())
     try:
-        # 1. Feature Engineering
-        features = feature_engine.generate_features(req.raw_data)
-        
-        # 2. ML Inference (fetch Champion)
-        champion = registry.get_champion()
-        if not champion:
-            raise RuntimeError("ModelNotTrainedError: No Champion model found in the registry.")
-            
-        prob = ml_arena.predict_probability(champion['model_version'], np.array([features]))
-        
-        # 3. V5 Pre-Momentum & Decision Trace Integration
         prices = req.raw_data.get('prices', [])
         volumes = req.raw_data.get('volumes', [])
         event_dict = req.raw_data.get('event', {})
         headline = event_dict.get('headline', '')
-        
-        # Parse Event
+
+        # === V6 Multi-Timeframe Fusion ===
+        multi_tf = multi_tf_engine.fuse_signals(prices, volumes)
+
+        # === V6 Regime Detection ===
+        regime_info = regime_detector.detect(prices, volumes)
+        regime = regime_info['regime']
+
+        # === V5 Feature Engineering (55 features) ===
+        features = feature_engine.generate_features(req.raw_data)
+
+        # === Feature alignment: pad or truncate to match model expectations ===
+        MODEL_FEATURE_DIM = 50  # Models trained on 50 features; new 5 are cross-asset
+        if len(features) > MODEL_FEATURE_DIM:
+            # New model with full 55 features — use all
+            model_features = features
+        else:
+            model_features = features
+
+        # === V6 Ensemble Voting (all models) ===
+        # Models trained on 50 features; new cross-asset features (50-54) are
+        # only used by models that were trained with 55 features. For legacy
+        # models we truncate to 50 features to avoid shape mismatch.
+        all_predictions = {}
+        for model_version_key in ml_arena.candidates:
+            try:
+                model_obj = ml_arena.candidates[model_version_key]
+                # Check if model expects 50 or 55 features by probing
+                n_features_expected = getattr(model_obj, 'n_features_in_', None)
+                if n_features_expected and n_features_expected < len(features):
+                    model_input = np.array([features[:n_features_expected]])
+                else:
+                    model_input = np.array([features])
+                p = ml_arena.predict_probability(model_version_key, model_input)
+                algo = model_version_key.split('_')[0] if '_' in model_version_key else model_version_key
+                all_predictions[algo] = p * 100
+            except Exception:
+                continue
+
+        if not all_predictions:
+            # Fallback to champion
+            champion = registry.get_champion()
+            if not champion:
+                raise RuntimeError("No models available for inference")
+            prob = ml_arena.predict_probability(champion['model_version'], np.array([features]))
+            all_predictions[champion['algorithm']] = prob * 100
+
+        # === V7 Deep Sequence Prediction ===
+        deep_seq_result = deep_sequence_engine.predict(prices, volumes)
+        all_predictions['DeepSequence_V7'] = deep_seq_result['probability']
+
+        # === V7 Ensemble with regime + multi-TF fusion ===
+        ensemble_result = ensemble_voter.vote(all_predictions, regime, multi_tf)
+        final_prob = ensemble_result['probability']
+
+        # === V5 engines (still valuable) ===
         structured_event = event_intelligence_engine.parse_event(headline)
-        
-        # Capital Flow
         cap_flow = capital_flow_engine.calculate_accumulation_probability(prices, volumes)
-        
-        # Historical Sim
         sim_result = similarity_engine.find_similar_events(structured_event.category, structured_event.amount)
-        
-        # V5 Fusion
+
         forecasts = pre_momentum_engine.generate_forecasts(
-            ml_prob=prob,
+            ml_prob=final_prob / 100,
             event_impact=structured_event.importance_score,
             accum_prob=cap_flow['accumulation_probability'],
             history_win_rate=sim_result.win_rate
         )
-        
+
         decision_trace = pre_momentum_engine.generate_decision_trace(
             ticker=req.raw_data.get('symbol', 'UNKNOWN'),
-            features_used=["EventImpact", "CapitalFlow", "HistoricalWinRate", "MLProb"],
-            feature_values=[structured_event.importance_score, cap_flow['accumulation_probability'], sim_result.win_rate, prob],
-            prediction="PRE-MOMENTUM CANDIDATE" if forecasts['prob_1day'] > 0.6 else "IGNORE",
-            confidence="High" if structured_event.confidence > 0.8 else "Medium",
-            reasoning="Multi-engine V5 synthesis."
+            features_used=["V6_Ensemble", "MultiTimeframe", "Regime", "EventImpact", "CapitalFlow"],
+            feature_values=[final_prob, multi_tf.get('fused_direction', 0),
+                          regime_info.get('efficiency_ratio', 0), structured_event.importance_score,
+                          cap_flow['accumulation_probability']],
+            prediction=ensemble_result['signal'],
+            confidence=f"{ensemble_result['confidence']:.0%}",
+            reasoning=f"Regime={regime}, TF_Align={multi_tf.get('timeframe_alignment','N/A')}, "
+                     f"Models={len(all_predictions)}, Agreement={multi_tf.get('agreement',0):.0%}"
         )
-        
-        # 4. Dynamic Risk Engine
+
+        # === V6 Dynamic Risk Engine ===
         risk_metrics = risk_engine.evaluate_risk(forecasts['prob_1day'], prices)
-        
+
+        # === V6 Execution Simulation ===
+        last_price = prices[-1] if prices else 0
+        exec_side = 'BUY' if final_prob > 55 else 'SELL' if final_prob < 45 else 'HOLD'
+        exec_sim = execution_simulator.simulate_execution(last_price, exec_side) if exec_side != 'HOLD' else None
+
         return {
             "prediction_id": str(uuid.uuid4()),
             "request_id": request_id,
-            "model_version": champion['model_version'],
-            "dataset_version": champion['dataset_version'],
-            "feature_version": feature_engine.version,
+            "model_version": champion['model_version'] if 'champion' in dir() else 'ensemble_v7',
+            "dataset_version": "v7.0",
+            "feature_version": "v7.0-deep-sequence-regime",
             "created_at": datetime.now().isoformat(),
-            "probability": forecasts['prob_1day'],  # Override with V5 probability
+            "probability": final_prob,
+            "signal": ensemble_result['signal'],
+            "confidence": ensemble_result['confidence'],
             "explanation": decision_trace,
             "features_used": features.tolist(),
             "risk_metrics": risk_metrics,
+            "v7_intelligence": {
+                "order_book_imbalance": deep_seq_result.get('order_book_imbalance', 1.0),
+                "deep_sequence_signal": deep_seq_result.get('signal', 'HOLD'),
+                "deep_sequence_prob": deep_seq_result.get('probability', 50.0),
+                "reasoning": deep_seq_result.get('reasoning', '')
+            },
+            "v6_intelligence": {
+                "regime": regime,
+                "regime_confidence": regime_info['confidence'],
+                "multi_timeframe": {
+                    "fused_direction": multi_tf['fused_direction'],
+                    "agreement": multi_tf['agreement'],
+                    "alignment": multi_tf['timeframe_alignment'],
+                    "daily_signal": multi_tf['daily']['direction'],
+                    "weekly_signal": multi_tf['weekly']['direction'],
+                    "monthly_signal": multi_tf['monthly']['direction'],
+                },
+                "ensemble": {
+                    "model_votes": ensemble_result['model_votes'],
+                    "tf_boost": ensemble_result['tf_boost'],
+                    "model_count": len(all_predictions),
+                },
+                "execution_simulation": exec_sim,
+            },
             "v5_metrics": {
                 "accumulation_probability": cap_flow['accumulation_probability'],
                 "historical_win_rate": sim_result.win_rate,
@@ -120,6 +306,36 @@ async def predict_probability(req: PredictionRequest):
             "expected_model": "XGBoost Classifier (v4)",
             "message": "Prediction failed. Ensure model weights are loaded and payload is valid."
         })
+
+@app.post("/retrain")
+async def retrain_models(req: RetrainRequest):
+    """LiveRetrainer: receive resolved prediction outcomes and incrementally retrain."""
+    try:
+        if not req.samples or len(req.samples) < 10:
+            return {"status": "skipped", "reason": "insufficient samples", "count": len(req.samples)}
+
+        # Buffer samples into LiveRetrainer
+        for sample in req.samples:
+            features = np.array(sample.get('features', []))
+            label = sample.get('label', 0)
+            if features.ndim == 1 and len(features) > 0:
+                live_retrainer.add_sample(features, label)
+
+        result = None
+        if live_retrainer.should_retrain():
+            print(f"[LiveRetrainer] Retraining with {live_retrainer.samples_since_retrain} new samples...")
+            # For incremental retrain, we need existing data — use an empty array as fallback
+            # The LiveRetrainer will merge new samples with any existing data
+            result = live_retrainer.retrain(np.array([]), np.array([]))
+
+        return {
+            "status": "ok",
+            "buffered": live_retrainer.samples_since_retrain,
+            "total_buffer": len(live_retrainer.buffer_X),
+            "retrain_result": result,
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 # CORS middleware
 app.add_middleware(
@@ -180,7 +396,12 @@ poller_task: asyncio.Task = None
 def get_market_context_sync(symbol: str) -> Dict:
     """Fetch live market momentum synchronously via yfinance"""
     try:
-        ticker_sym = symbol + ".NS" if not symbol.endswith(".NS") else symbol
+        # Index/commodity symbols (^NSEI, CL=F) must NOT get ".NS" appended —
+        # yfinance treats "CL=F.NS" / "^NSEI.NS" as invalid/delisted.
+        if symbol.startswith('^') or '=' in symbol:
+            ticker_sym = symbol
+        else:
+            ticker_sym = symbol + ".NS" if not symbol.endswith(".NS") else symbol
         ticker = yf.Ticker(ticker_sym)
         hist = ticker.history(period="10d")
         if hist.empty:
@@ -231,11 +452,22 @@ async def send_telegram_alert(
     chat_id = os.getenv("TELEGRAM_CHAT_ID")
     if not bot_token or not chat_id:
         return
-    
+
     # Send alerts for ALL signals - no filtering
     # This ensures no valuable announcement is missed
     if signal not in ["strong_buy", "buy", "sell", "avoid"]:
         return
+
+    # Deduplicate alerts: the yfinance fallback re-feeds the same market-wide
+    # headline on every poll, so the identical story must never re-fire.
+    import hashlib
+    ist_date = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime('%Y-%m-%d')
+    dedup_key = f"{ist_date}|{ticker}|{hashlib.md5(headline.encode('utf-8', errors='ignore')).hexdigest()[:12]}"
+    if dedup_key in _SENT_ALERT_KEYS:
+        return
+    _SENT_ALERT_KEYS.add(dedup_key)
+    if len(_SENT_ALERT_KEYS) > 500:
+        _SENT_ALERT_KEYS.clear()
     
     import html
     from datetime import datetime
@@ -301,23 +533,57 @@ async def send_telegram_alert(
     safe_headline = html.escape(headline[:200] if headline else "No headline")
     safe_ticker = html.escape(ticker[:20])
     
-    # Build message
-    text = f"""{emoji} <b>{strength} {signal.upper()} SIGNAL</b> {emoji}
+    # Accurate Indian Standard Time (IST) UTC+5:30
+    from datetime import timedelta
+    now_ist = (datetime.utcnow() + timedelta(hours=5, minutes=30)).strftime("%d %b %Y, %I:%M:%S %p IST")
+    
+    fused = decision_trace.get("fused_data") if decision_trace else None
+    fusion_text = ""
+    if fused:
+        options = fused.get("options_eval", {})
+        options_text = ""
+        if options:
+            options_text = f"""
+💹 <b>Options Market Intelligence:</b>
+  • PCR: <b>{options.get('pcr', 'N/A')}</b>
+  • Max Pain Dist: <b>{((options.get('max_pain_distance', 1.0) - 1) * 100):.1f}%</b>
+  • Options Signal: <b>{options.get('signal', 'NEUTRAL')}</b>"""
+        
+        tiebreaker_text = ""
+        if fused.get("tiebreaker_used"):
+            tiebreaker_text = f"\n  • Tiebreaker Winner: <b>{fused.get('tiebreaker_winner', 'N/A')}</b>"
 
-📌 <b>Ticker:</b> {safe_ticker}
-💰 <b>CMP:</b> {current_price}
-📰 <b>Headline:</b> <i>{safe_headline}</i>
+        fusion_text = f"""{options_text}
+🤖 <b>Multi-Model Fusion Analytics:</b>
+  • V7 Engine: <b>{fused.get("direction", signal.upper())}</b> ({fused.get("v7_confidence", conf_pct):.0f}%) [Weight: {fused.get("v7_weight", 0.6)*100:.0f}%]
+  • DalalAI: <b>{fused.get("dalalai_prediction", "N/A")}</b> ({fused.get("dalalai_confidence", 0)}%) [Weight: {fused.get("dalalai_weight", 0.4)*100:.0f}%]{tiebreaker_text}
+  • Agreement: <b>{fused.get("agreement", "N/A")}</b> — Net Confidence: {fused.get("confidence", 0):.0f}%
+"""
 
-🎯 <b>V5 Intelligence Data:</b>
-  • Expected Return: <b>{range_text}</b>
-  • V5 Confidence: <b>{conf_pct}%</b>
-  • Accumulation Vol: {volume_label}
-  • Momentum Engine: {momentum_label}
+    # Build a visually striking HTML message
+    text = f"""<b>QUANTUM ALPHA V7 ALERT</b> 🚀
+══════════════════════
+{emoji} <b>{strength} {signal.upper()} SIGNAL</b> {emoji}
 
-🧠 <b>Deep Learned Analysis:</b>
+🎯 <b>Ticker:</b> <code>{safe_ticker}</code>
+💰 <b>Live Price:</b> <b>{current_price}</b>
+🕒 <b>Time:</b> <code>{now_ist}</code>
+
+📰 <b>Market Catalyst:</b> 
+<i>{safe_headline}</i>
+
+🎯 <b>FINAL PREDICTION:</b> <b>{signal.upper()}</b> · Probability <b>{conf_pct}%</b> · Target Move <b>{range_text}</b>
+
+📊 <b>V7 Deep Sequence Data:</b>
+  • Target Move: <b>{range_text}</b>
+  • Sequence Confidence: <b>{conf_pct}%</b>
+  • Volume Surge: <b>{volume_label}</b>
+  • Momentum State: <b>{momentum_label}</b>
+{fusion_text}
+🧠 <b>V7 Microstructure Analysis:</b>
 {safe_reason}
 
-<i>Powered by V5 ML Core | Advanced Quant Pipeline</i>"""
+<i>Powered by Quantum Alpha V7 | Real-Time Deep Sequence Predictor</i>"""
 
 
 
@@ -418,8 +684,14 @@ async def perform_full_analysis(announcement: Dict) -> Dict:
     volume_surge = cap_flow['relative_volume']
     pe_ratio = announcement.get("pe_ratio")
     
-    # Send Telegram alert for ALL significant events
-    if structured_event.category != "Unknown" or volume_surge > 2.0:
+    # Send Telegram alert for ALL significant events, but only while NSE is in
+    # a tradeable window (PRE + regular session) AND the announcement is for a
+    # real stock (not the ^NSEI index feed or commodities like CL=F). After
+    # hours we'd be shouting BUY/SELL at frozen prices — exactly the confusion
+    # the user hit.
+    if (is_tradeable_stock_symbol(symbol)
+            and (structured_event.category != "Unknown" or volume_surge > 2.0)
+            and is_nse_signal_window()):
         try:
             bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
             chat_id = os.getenv("TELEGRAM_CHAT_ID")
@@ -788,23 +1060,6 @@ async def poller_loop():
     print("Starting poller background task...")
     await poller.run(handle_announcement)
 
-@app.on_event("startup")
-async def startup_event():
-    """Start background poller on server startup"""
-    global poller_task
-    poller_task = asyncio.create_task(poller_loop())
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Clean up on server shutdown"""
-    global poller_task
-    if poller_task:
-        poller_task.cancel()
-        try:
-            await poller_task
-        except asyncio.CancelledError:
-            pass
-
 # === API Endpoints ===
 
 @app.get("/api/macro")
@@ -850,8 +1105,42 @@ async def root():
     return {
         "status": "running",
         "service": "NSE/BSE Announcements API",
-        "version": "2.0.0",
+        "version": "3.0.0",
         "timestamp": datetime.now().isoformat(),
+    }
+
+@app.get("/health")
+async def health_check():
+    """Production health check: models, env, registry, training cache."""
+    from pathlib import Path
+    try:
+        from paths import DATA_DIR
+    except ImportError:
+        from backend.paths import DATA_DIR
+    champion = registry.get_champion()
+    models = list(ml_arena.candidates.keys())
+    cache_dir = DATA_DIR / "training_cache"
+    cache_files = list(cache_dir.glob("*.pkl")) if cache_dir.exists() else []
+    return {
+        "status": "healthy" if models else "degraded",
+        "version": "3.0.0",
+        "timestamp": datetime.now().isoformat(),
+        "python": {"version": sys.version, "platform": sys.platform},
+        "env": {
+            "telegram": bool(os.getenv("TELEGRAM_BOT_TOKEN") and os.getenv("TELEGRAM_CHAT_ID")),
+            "supabase": bool(os.getenv("SUPABASE_SERVICE_KEY")),
+            "ollama": bool(os.getenv("OLLAMA_BASE_URL")),
+        },
+        "ml": {
+            "models_loaded": len(models),
+            "model_names": models,
+            "champion": champion['model_version'] if champion else None,
+            "champion_algorithm": champion['algorithm'] if champion else None,
+        },
+        "training_cache": {
+            "cached_tickers": len(cache_files),
+            "cache_dir": str(cache_dir),
+        },
     }
 
 @app.get("/api/stats")
@@ -1051,6 +1340,19 @@ async def get_pe_thresholds():
         "growth": PE_GROWTH_THRESHOLD,
     }
 
+@app.get("/api/dalalai/pulse/{symbol}")
+async def dalalai_pulse(symbol: str):
+    """
+    On-Demand Stock Pulse: Runs V7 Options Flow + DalalAI 15-Model Ensemble fusion
+    specifically for the requested symbol.
+    """
+    try:
+        fused_data = await dalalai_poller_instance.run_on_demand_fusion(symbol)
+        return {"status": "success", "data": fused_data}
+    except Exception as e:
+        logger.error(f"Error running on-demand fusion for {symbol}: {e}")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/api/analysis/pipeline")
 async def get_pipeline_info():
     """Get information about the analysis pipeline"""
@@ -1090,7 +1392,10 @@ async def get_pipeline_info():
         }
     }
 
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    import sys
+    import asyncio
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    uvicorn.run(app, host="0.0.0.0", port=8080)

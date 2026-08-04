@@ -1,9 +1,10 @@
 'use client';
 import React, { useState, useEffect, useMemo, Suspense, useCallback, useRef, useTransition, useSyncExternalStore } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
 import { useMarketData } from '@/lib/MarketDataContext';
-import { INDEX_NAMES, isIndianTicker } from '@/lib/marketConfig';
+import { isIndianTicker } from '@/lib/marketConfig';
+
 const AIAnalyticsHub = dynamic(() => import('@/components/AIAnalyticsHub'), {
   ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading AI analytics…</div>,
 });
@@ -16,16 +17,12 @@ const LearningProgress = dynamic(() => import('@/components/LearningProgress'), 
 const AISelfLearningLoop = dynamic(() => import('@/components/AISelfLearningLoop'), {
   ssr: false, loading: () => null,
 });
-import { getSessionCookie, getSessionRole, signOut } from '@/lib/sessionManager';
+import { getSessionRole } from '@/lib/sessionManager';
 import PanelErrorBoundary from '@/components/PanelErrorBoundary';
-import { TerminalIcon, type IconName } from '@/components/icons/TerminalIcons';
 import SmoothPrice from '@/components/SmoothPrice';
-import { getFeedStatusDisplay } from '@/lib/feedStatus';
-import DashboardClock from '@/components/dashboard/DashboardClock';
 import TraderEdgePanel from '@/components/TraderEdgePanel';
 import AccuracySnapshot from '@/components/AccuracySnapshot';
 import AccessControlPanel from '@/components/AccessControlPanel';
-import DataQualityIndicator from '@/components/DataQualityIndicator';
 
 const StockMarketList = dynamic(() => import('@/components/StockMarketList'), {
   ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading stock data…</div>,
@@ -45,14 +42,29 @@ const AITrustEngine = dynamic(() => import('@/components/AITrustEngine'), {
 const HighMomentumScanner = dynamic(() => import('@/components/HighMomentumScanner'), {
   ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading momentum scanner…</div>,
 });
+const IntradayDashboard = dynamic(() => import('@/components/IntradayDashboard'), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading intraday scanner…</div>,
+});
 const AIEventDashboard = dynamic(() => import('@/components/AIEventDashboard'), {
   ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading event dashboard…</div>,
 });
-const LiveTradePortfolio = dynamic(() => import('@/components/LiveTradePortfolio'), {
-  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading portfolio…</div>,
+const QuantStrategiesPanel = dynamic(() => import('@/components/QuantStrategiesPanel'), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading quant strategies…</div>,
+});
+const BacktestPanel = dynamic(() => import('@/components/BacktestPanel'), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading backtests…</div>,
+});
+const OptionsFlowPanel = dynamic(() => import('@/components/OptionsFlowPanel'), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading options flow…</div>,
+});
+const RiskDashboard = dynamic(() => import('@/components/RiskDashboard'), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-64 text-slate-500 font-mono text-sm animate-pulse">Loading risk analytics…</div>,
+});
+const MacroEconomicTracker = dynamic(() => import('@/components/MacroEconomicTracker').then(mod => mod.MacroEconomicTracker), {
+  ssr: false, loading: () => <div className="flex items-center justify-center h-32 text-slate-500 font-mono text-sm animate-pulse">Loading macro data…</div>,
 });
 
-type NavView = 'overview' | 'chart' | 'portfolio' | 'stocks' | 'predictions' | 'momentum' | 'trust' | 'prices' | 'access' | 'announcements';
+type NavView = 'overview' | 'chart' | 'stocks' | 'predictions' | 'momentum' | 'intraday' | 'trust' | 'prices' | 'access' | 'announcements' | 'quant' | 'backtest' | 'options' | 'risk' | 'edge';
 
 const SmoothTicker = React.memo(function SmoothTicker({ items }: { items: { ticker: string; price: number; change: number; changePct: number; currency: string }[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -103,8 +115,7 @@ const SmoothTicker = React.memo(function SmoothTicker({ items }: { items: { tick
 
 function WorkspaceView() {
   const searchParams = useSearchParams();
-  const router = useRouter();
-  const { indices, isLive, pricesStreaming, stocks, market, connectionStatus } = useMarketData();
+  const { indices, stocks, market } = useMarketData();
   const mounted = useSyncExternalStore(
     () => () => {},
     () => true,
@@ -112,34 +123,11 @@ function WorkspaceView() {
   );
   const sessionRole = mounted ? getSessionRole() : null;
   const isAdmin = sessionRole === 'admin';
-  const guestName = useMemo(() => {
-    if (!mounted || sessionRole !== 'guest') return '';
-    const s = getSessionCookie();
-    return s?.name || s?.email?.replace('guest:', '') || 'Guest';
-  }, [mounted, sessionRole]);
-  const [guestNow, setGuestNow] = useState(() => (typeof window !== 'undefined' ? Date.now() : 0));
 
   const rawView = searchParams.get('view') as NavView;
   const guestAllowed: NavView[] = ['overview', 'chart', 'prices', 'announcements'];
   const view = rawView && (!isAdmin && !guestAllowed.includes(rawView) ? 'overview' : rawView) || 'overview';
 
-  const [, startViewTransition] = useTransition();
-  const setView = useCallback((v: NavView) => {
-    if (!isAdmin && !guestAllowed.includes(v)) return;
-    startViewTransition(() => {
-      router.push(`/dashboard?view=${v}`, { scroll: false });
-    });
-  }, [router, isAdmin]);
-
-  const session = useMemo(() => (mounted ? getSessionCookie() : null), [mounted]);
-
-  useEffect(() => {
-    if (!mounted || isAdmin) return;
-    const t = setInterval(() => setGuestNow(Date.now()), 10000);
-    return () => clearInterval(t);
-  }, [mounted, isAdmin]);
-
-  const feed = getFeedStatusDisplay(connectionStatus, pricesStreaming, market.phase);
   const nseIndex = indices['^NSEI'];
   const spIndex = indices['^GSPC'];
 
@@ -151,7 +139,7 @@ function WorkspaceView() {
       const indian = sym === '^NSEI' || sym === '^BSESN' || sym === '^NSEBANK' || isIndianTicker(sym);
       if (q?.price && q.price > 0) {
         items.push({
-          ticker: INDEX_NAMES[sym] || sym,
+          ticker: sym,
           price: q.price,
           change: q.change || 0,
           changePct: q.changePercent || 0,
@@ -191,45 +179,9 @@ function WorkspaceView() {
   const sentimentLabel = sentimentScore > 60 ? 'Bullish' : sentimentScore > 45 ? 'Neutral' : 'Bearish';
   const sentimentColor = sentimentLabel === 'Bullish' ? 'text-emerald-400' : sentimentLabel === 'Neutral' ? 'text-yellow-400' : 'text-red-400';
 
-  const navItems: { id: NavView; icon: IconName; label: string }[] = useMemo(() => {
-    const TABS: { id: NavView; label: string; icon: IconName }[] = [
-    { id: 'overview', label: 'Dashboard', icon: 'dashboard' },
-    { id: 'portfolio', label: 'Portfolio', icon: 'layers' },
-    { id: 'chart', label: 'Chart', icon: 'chart' },
-    { id: 'prices', label: 'Prices', icon: 'prices' },
-    { id: 'announcements', label: 'Announcements', icon: 'news' },
-    ];
-    const adminNav: { id: NavView; icon: IconName; label: string }[] = [
-      { id: 'overview', icon: 'dashboard', label: 'Dashboard' },
-      { id: 'portfolio', icon: 'layers', label: 'Portfolio' },
-      { id: 'chart', icon: 'chart', label: 'Chart' },
-      { id: 'stocks', icon: 'stocks', label: 'Lists' },
-      { id: 'predictions', icon: 'predictions', label: 'Weekly' },
-      { id: 'momentum', icon: 'predictions', label: 'Momentum' },
-      { id: 'trust', icon: 'trust', label: 'Trust' },
-      { id: 'prices', icon: 'prices', label: 'Prices' },
-      { id: 'announcements', icon: 'news', label: 'Announcements' },
-      { id: 'access', icon: 'users', label: 'Access' },
-    ];
-    return isAdmin ? adminNav : TABS;
-  }, [isAdmin]);
-
-  const viewTitles: Record<NavView, string> = {
-    overview: 'Dashboard Overview',
-    chart: 'Fullscreen Chart',
-    portfolio: 'Live Trade Portfolio',
-    stocks: 'Stock Market Lists',
-    predictions: 'AI Predictions',
-    momentum: 'High Momentum Scanner',
-    trust: 'AI Trust Engine',
-    prices: 'Live Market Prices',
-    announcements: 'Live Corporate Announcements',
-    access: 'Access Control',
-  };
-
   const overviewPanel = (
         <div className="space-y-5 sm:space-y-6">
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="terminal-card p-3 sm:p-4 col-span-1">
               <div className="text-[8px] font-mono text-slate-500 uppercase tracking-wider">NIFTY 50</div>
               <div className="mt-2 min-h-[1.75rem] sm:min-h-[2rem]">
@@ -259,37 +211,16 @@ function WorkspaceView() {
                 <div className={`text-[10px] sm:text-xs font-bold font-mono uppercase ${sentimentColor}`}>{sentimentLabel}</div>
               </div>
             </div>
-            <div className="terminal-card p-3 sm:p-4 col-span-1">
-              <div className="text-[8px] font-mono text-slate-500 uppercase tracking-wider">Feed</div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className={`h-2 w-2 rounded-full shrink-0 ${feed.dotClass}`} />
-                <span className={`text-[10px] sm:text-xs font-mono font-bold ${feed.badgeClass.split(' ')[0]}`}>
-                  {feed.label}
-                </span>
-              </div>
-              <p className="text-[8px] sm:text-[9px] text-slate-500 font-mono mt-1.5 line-clamp-2" title={market.statusMessage}>{market.statusMessage}</p>
-            </div>
             <AccuracySnapshot />
           </div>
 
-          <div className="grid grid-cols-1 2xl:grid-cols-12 gap-5 2xl:gap-6 items-start">
-            <div className="2xl:col-span-8 min-w-0">
+          <MacroEconomicTracker />
+
+          <div className="grid grid-cols-1 gap-5 lg:gap-6 items-start">
+            <div className="min-w-0">
               <PanelErrorBoundary title="AI analytics failed to load">
                 <AIAnalyticsHub marketMode="INDIAN" isActive={view === 'overview'} />
               </PanelErrorBoundary>
-              {view === 'chart' && (
-                <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden h-[600px] flex flex-col shadow-xl">
-                  <TradingChart variant="page" />
-                </div>
-              )}
-
-              {view === 'portfolio' && (
-                <Suspense fallback={<div className="h-64 flex items-center justify-center font-mono text-slate-500 text-sm animate-pulse">Loading Portfolio...</div>}>
-                  <LiveTradePortfolio />
-                </Suspense>
-              )}</div>
-            <div className="2xl:col-span-4 min-w-0 2xl:sticky 2xl:top-4">
-              <TraderEdgePanel />
             </div>
           </div>
 
@@ -315,9 +246,16 @@ function WorkspaceView() {
   );
 
   const renderMainContent = () => (
-      <>
+      <div className="mt-4">
         <div className={view === 'overview' ? '' : 'hidden'}>
           {overviewPanel}
+        </div>
+        <div className={view === 'chart' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Chart failed to load">
+             <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden h-[800px] max-h-[85vh] flex flex-col shadow-xl">
+               <TradingChart variant="page" />
+             </div>
+          </PanelErrorBoundary>
         </div>
         <div className={view === 'stocks' ? '' : 'hidden'}>
           <PanelErrorBoundary title="Stock list failed to load">
@@ -332,6 +270,11 @@ function WorkspaceView() {
         <div className={view === 'momentum' ? '' : 'hidden'}>
           <PanelErrorBoundary title="Momentum scanner failed to load">
             <HighMomentumScanner />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'intraday' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Intraday dashboard failed to load">
+            <IntradayDashboard />
           </PanelErrorBoundary>
         </div>
         <div className={view === 'trust' ? '' : 'hidden'}>
@@ -352,143 +295,51 @@ function WorkspaceView() {
         <div className={view === 'access' ? '' : 'hidden'}>
           <AccessControlPanel />
         </div>
-      </>
-  );
-
-  if (view === 'chart') {
-    return (
-      <>
-        {mounted && isAdmin && <AISelfLearningLoop />}
-        <div className="fixed inset-0 z-60 flex flex-col bg-slate-950 min-h-dvh">
-          <div className="flex items-center justify-between gap-3 px-3 sm:px-4 py-2.5 bg-slate-900/95 border-b border-slate-800 shrink-0">
-            <button
-              type="button"
-              onClick={() => setView('overview')}
-              className="touch-target text-[10px] sm:text-xs font-mono text-slate-400 hover:text-white px-2 py-1 rounded-lg hover:bg-slate-800/60 transition-colors"
-            >
-              ← Dashboard
-            </button>
-            <span className="text-[9px] font-mono text-slate-500 uppercase tracking-wider">Chart</span>
-          </div>
-          <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-            <PanelErrorBoundary title="Chart failed to load">
-              <TradingChartInner />
-            </PanelErrorBoundary>
-          </div>
+        <div className={view === 'quant' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Quant strategies failed to load">
+            <QuantStrategiesPanel />
+          </PanelErrorBoundary>
         </div>
-      </>
-    );
-  }
+        <div className={view === 'backtest' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Backtest failed to load">
+            <BacktestPanel />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'options' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Options flow failed to load">
+            <OptionsFlowPanel />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'risk' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Risk dashboard failed to load">
+            <RiskDashboard />
+          </PanelErrorBoundary>
+        </div>
+        <div className={view === 'edge' ? '' : 'hidden'}>
+          <PanelErrorBoundary title="Trade Edge failed to load">
+            <TraderEdgePanel />
+          </PanelErrorBoundary>
+        </div>
+      </div>
+  );
 
   return (
     <>
       {mounted && isAdmin && <AISelfLearningLoop />}
       <div className="w-full min-w-0">
-        <nav className="tab-scroll scrollbar-none mb-4 -mx-1 px-1 sm:mx-0 sm:px-0" aria-label="Dashboard views">
-          {navItems.map(item => (
-            <button key={item.id} onClick={() => item.id === 'chart' ? setView('chart') : setView(item.id)}
-              className={`touch-target shrink-0 px-3 sm:px-4 py-2 text-[10px] sm:text-xs font-mono rounded-xl transition-all flex items-center gap-2 ${
-                view === item.id
-                  ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/40 shadow-sm shadow-emerald-950/40'
-                  : 'text-slate-400 hover:bg-slate-800/60 hover:text-white border border-slate-800/80 bg-slate-900/40'
-              }`}>
-              <TerminalIcon name={item.icon} size={16} className={view === item.id ? 'text-emerald-400' : 'text-slate-500'} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        <div className="relative overflow-hidden h-8 sm:h-9 terminal-card flex items-center mb-4 sm:mb-5">
-          <div className="absolute left-0 top-0 bottom-0 z-10 bg-linear-to-r from-slate-900 to-transparent w-6 sm:w-8 pointer-events-none" />
-          <div className="absolute right-0 top-0 bottom-0 z-10 bg-linear-to-l from-slate-900 to-transparent w-6 sm:w-8 pointer-events-none" />
+        <div className="relative overflow-hidden h-8 sm:h-9 terminal-card flex items-center mb-2">
+          <div className="absolute left-0 top-0 bottom-0 z-10 bg-linear-to-r from-[rgba(15,23,42,0.45)] to-transparent w-6 sm:w-8 pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 z-10 bg-linear-to-l from-[rgba(15,23,42,0.45)] to-transparent w-6 sm:w-8 pointer-events-none" />
           {tickerItems.length > 0 ? <SmoothTicker items={tickerItems} /> : (
             <span className="text-[8px] font-mono text-slate-600 px-3">Loading ticker…</span>
           )}
         </div>
-
-        {/* Guest welcome banner — always in DOM to prevent CLS */}
-        <div className={`mb-3 sm:mb-4 min-h-[3.5rem] sm:min-h-[3.75rem] ${mounted && !isAdmin && session ? '' : 'invisible'}`}>
-          {mounted && !isAdmin && session && (
-            <div className="flex items-center gap-2 bg-linear-to-r from-blue-500/5 to-indigo-500/5 border border-blue-500/20 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5">
-              <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-linear-to-br from-blue-400 to-indigo-500 flex items-center justify-center text-white text-[8px] sm:text-[10px] font-bold font-mono shrink-0">
-                {guestName.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-[9px] sm:text-[10px] font-bold font-mono text-white truncate">Welcome, {guestName}</div>
-                <div className="text-[7px] font-mono text-blue-400/70">Limited guest access</div>
-              </div>
-              <button onClick={() => { void signOut().then(() => { window.location.href = '/login'; }); }}
-                className="text-[7px] sm:text-[8px] font-mono text-slate-500 hover:text-white px-2 py-1 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-all shrink-0">
-                Logout
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Admin controls bar — always in DOM to prevent CLS */}
-        <div className={`mb-3 sm:mb-4 flex items-center justify-end gap-2 min-h-[2rem] ${mounted && isAdmin ? 'visible' : 'invisible'}`}>
-          {mounted && isAdmin && (
-            <button onClick={() => { void signOut().then(() => { window.location.href = '/login'; }); }}
-              className="text-[7px] sm:text-[8px] font-mono text-slate-500 hover:text-white px-2 py-1 rounded-lg border border-slate-700/50 hover:border-slate-600 transition-all">
-              Logout
-            </button>
-          )}
-        </div>
-
-        <header className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 border-b border-slate-800/80 pb-4 mb-5 sm:mb-6">
-          <div className="min-w-0 flex-1">
-            <h1 className="text-lg sm:text-xl md:text-2xl font-bold tracking-tight text-white font-mono truncate">
-              {viewTitles[view]}
-            </h1>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 min-h-[1.25rem]">
-              <span className="text-[9px] sm:text-[10px] text-slate-500 font-mono line-clamp-1">
-                {market.statusMessage || <span className="invisible">placeholder</span>}
-              </span>
-              <span className="text-[9px] sm:text-[10px] font-mono text-slate-600 min-w-[8rem] text-right tabular-nums">
-                {mounted ? <DashboardClock /> : '\u00A0'}
-              </span>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0 min-h-[2rem]">
-            <DataQualityIndicator />
-            {mounted && !isAdmin && session ? (() => {
-              const remaining = Math.max(0, session.expiresAt - guestNow);
-              const h = Math.floor(remaining / 3600000);
-              const m = Math.floor((remaining % 3600000) / 60000);
-              const s = Math.floor((remaining % 60000) / 1000);
-              return (
-                <span className="flex items-center gap-1.5 text-[9px] sm:text-[10px] font-mono px-2.5 py-1.5 rounded-full border bg-blue-500/10 text-blue-400 border-blue-500/20">
-                  <span className="hidden sm:inline text-blue-300">{guestName}:</span>
-                  <span className="font-bold tracking-wider tabular-nums">{String(h).padStart(2,'0')}:{String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}</span>
-                </span>
-              );
-            })() : (
-              <span className={`flex items-center gap-1.5 text-[9px] sm:text-[10px] font-mono px-2.5 py-1.5 rounded-full border ${isLive ? (pricesStreaming ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border-amber-500/20') : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
-                <span className={`h-1.5 w-1.5 rounded-full ${isLive ? (pricesStreaming ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500') : 'bg-red-500'}`} />
-                {!isLive ? 'OFFLINE' : pricesStreaming ? 'LIVE' : 'CLOSED'}
-              </span>
-            )}
-          </div>
-        </header>
 
         {renderMainContent()}
       </div>
     </>
   );
 }
-
-const TradingChartInner = dynamic(
-  () => import('@/components/TradingChart').then(mod => {
-    function EmbeddedChart() {
-      return <mod.default variant="embedded" />;
-    }
-    return { default: EmbeddedChart };
-  }),
-  {
-    ssr: false,
-    loading: () => <div className="flex h-full min-h-[200px] items-center justify-center text-slate-500 font-mono text-sm animate-pulse">Loading chart…</div>,
-  },
-);
 
 export default function DashboardPage() {
   return (

@@ -16,7 +16,7 @@ export interface MacroShockEvent {
   safeHavenTickers: string[];
   bullishTickers: string[];
   active: boolean;
-  region?: 'INDIAN' | 'INTERNATIONAL';
+  region?: 'INDIAN' | 'US' | 'CRYPTO' | 'FOREX' | 'FOREIGN' | 'INTERNATIONAL';
 }
 
 let currentShock: MacroShockEvent | null = null;
@@ -81,7 +81,7 @@ export function fireMacroShock(
   impacts: GeopoliticalImpact[],
   forcedRegime: 'PANIC' | 'HIGH_VOLATILITY',
   newsPublishedAt = Date.now(),
-  region?: 'INDIAN' | 'INTERNATIONAL',
+  region?: 'INDIAN' | 'US' | 'CRYPTO' | 'FOREX' | 'FOREIGN' | 'INTERNATIONAL',
 ): MacroShockEvent {
   const now = Date.now();
   if (now - newsPublishedAt > MACRO_NEWS_MAX_AGE_MS) {

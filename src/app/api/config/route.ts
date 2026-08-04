@@ -4,8 +4,8 @@ import { getServiceClient } from '@/lib/supabase';
 export async function GET() {
   const svc = getServiceClient();
   if (!svc) return NextResponse.json({ error: 'DB not configured' }, { status: 500 });
-  // @ts-ignore
-  const { data, error } = await svc.from('system_config').select('key_name, updated_at');
+
+  const { data, error } = await svc.from('system_config').select('*');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ keys: data });
 }

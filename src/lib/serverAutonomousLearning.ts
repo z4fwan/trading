@@ -35,7 +35,7 @@ export interface AutonomousCycleResult {
 }
 
 function getServerWeights(): IndicatorWeightSet {
-  const g = globalThis as Record<string, unknown>;
+  const g = globalThis as unknown as Record<string, unknown>;
   if (!g[SERVER_WEIGHTS_KEY]) {
     g[SERVER_WEIGHTS_KEY] = {
       weights: {
@@ -51,7 +51,7 @@ function getServerWeights(): IndicatorWeightSet {
 }
 
 function setServerWeights(ws: IndicatorWeightSet): void {
-  (globalThis as Record<string, unknown>)[SERVER_WEIGHTS_KEY] = ws;
+  (globalThis as unknown as Record<string, unknown>)[SERVER_WEIGHTS_KEY] = ws;
 }
 
 export async function hydrateServerKnowledgeFromCloud(): Promise<void> {

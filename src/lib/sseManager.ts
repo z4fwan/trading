@@ -15,7 +15,8 @@ let lastBroadcastAt = 0;
 
 function broadcast(): void {
   const engine = getEngineState();
-  // @ts-ignore
+
+  // @ts-expect-error global scope augmentation not fully typed
   const payload = global.__quotesPayload || engine.quotesPayload;
   if (!payload) return;
   const now = Date.now();
@@ -31,6 +32,10 @@ function broadcast(): void {
     catch { deadIds.push(id); }
   }
   for (const id of deadIds) clients.delete(id);
+
+  // Removed dangerous WebSocket broadcasting hack.
+  // WebSockets are now handled exclusively by server.js via IPC from the background worker.
+
   if (clients.size === 0 && broadcastTimer) {
     clearInterval(broadcastTimer);
     broadcastTimer = null;

@@ -24,11 +24,27 @@ const MAX_NEWS = 500;
 const NEWS_TTL_MS = 72 * 60 * 60 * 1000; // 72 hours
 let newsCache: NewsEvent[] | undefined;
 
+function dedupById(list: NewsEvent[]): NewsEvent[] {
+  const seen = new Set<string>();
+  const out: NewsEvent[] = [];
+  for (const n of list) {
+    if (!n || typeof n.id !== 'string' || !n.id) continue;
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
+    out.push(n);
+  }
+  return out;
+}
+
 function loadNews(): NewsEvent[] {
   if (newsCache) return newsCache;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    newsCache = raw ? (JSON.parse(raw) || []) : [];
+    const parsed: NewsEvent[] = raw ? (JSON.parse(raw) || []) : [];
+    // Purge legacy duplicates that were ingested before id-dedup existed —
+    // otherwise React renders duplicate keys forever from the persisted store.
+    newsCache = dedupById(parsed);
+    if (newsCache.length !== parsed.length) saveNews();
   } catch {
     newsCache = [];
   }
@@ -48,7 +64,7 @@ export async function hydrateNewsFromDB(): Promise<void> {
   try {
     const stored = await heavyGet<NewsEvent[]>(STORAGE_KEY);
     if (stored && stored.length > 0) {
-      newsCache = stored;
+      newsCache = dedupById(stored);
     }
   } catch { /* fallback to localStorage */ }
 }

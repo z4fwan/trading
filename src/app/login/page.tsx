@@ -111,14 +111,16 @@ export default function LoginPage() {
         <div className="terminal-panel border-slate-700/50 p-6 sm:p-8 shadow-2xl shadow-emerald-900/10">
           {/* Logo */}
           <div className="text-center mb-8">
-            <div className="text-2xl font-mono font-bold tracking-tight">
-              <span className="text-white">A</span>
-              <span className="text-emerald-500">I</span>
-              <span className="text-slate-600 mx-1">·</span>
-              <span className="text-white">T</span>
-              <span className="text-emerald-500">RADER</span>
+            <div className="flex flex-col items-center justify-center gap-3">
+              <div className="logo-container h-12 w-12 shrink-0" role="img" aria-label="Logo">
+              </div>
+              <div className="text-center">
+                <div className="animate-text-gradient font-bold tracking-widest font-mono text-xl">
+                  QUANTUM_ALPHA_V1
+                </div>
+                <div className="text-[9px] font-mono text-slate-500 mt-1 tracking-widest uppercase">Admin Core Terminal</div>
+              </div>
             </div>
-            <div className="text-[8px] font-mono text-slate-600 mt-1 tracking-widest uppercase">Adaptive Market Intelligence</div>
             {demoMode && (
               <div className="mt-3 inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/10 border border-amber-500/30 rounded-full text-[8px] font-mono text-amber-400">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
