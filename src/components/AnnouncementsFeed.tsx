@@ -218,7 +218,12 @@ export default function AnnouncementsFeed({
       
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const hostname = window.location.hostname;
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || `${protocol}//${hostname}:8080/ws/announcements`;
+      const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || (
+        isLocal
+          ? `${protocol}//${hostname}:8080/ws/announcements`
+          : `${protocol}//${hostname}/ws`
+      );
       const socket = new WebSocket(wsUrl);
       wsRef.current = socket;
 
