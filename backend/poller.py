@@ -145,8 +145,18 @@ class AnnouncementPoller:
         except Exception as e:
             print(f"Failed to initialize Playwright browser: {e}")
             if self.browser:
-                await self.browser.close()
+                try:
+                    await self.browser.close()
+                except Exception:
+                    pass
                 self.browser = None
+            self.context = None
+            if self.playwright:
+                try:
+                    await self.playwright.stop()
+                except Exception:
+                    pass
+                self.playwright = None
             return False
             
     async def extract_pdf_text(self, pdf_url: str) -> str:
