@@ -690,6 +690,10 @@ export async function startBackgroundEngine(): Promise<void> {
       void runPreMarketAlphaCycle(true);  // 9:07 AM Pre-Open Scan
     } else if (hh === 9 && mm === 12) {
       void runPreMarketMomentumScan('POST_OPEN'); // 9:12 open-confirmation picks
+    } else if ((hh === 9 && (mm === 30 || mm === 45)) || (hh === 10 && mm === 0)) {
+      // Late-breakout rescans: stocks that moved after the 9:12 cutoff (the
+      // 9:15–10:00 gap runners) get a second chance to be caught.
+      void runPreMarketMomentumScan('RE_SCAN');
     } else if (hh === 15 && mm === 45) {
       resolvePreMarketPredictions(); // 15:45 resolve day's picks for the ledger
     }
@@ -709,6 +713,8 @@ export async function startBackgroundEngine(): Promise<void> {
         void runPreMarketMomentumScan('PRE_OPEN');
       } else if (mins >= 9 * 60 + 12 && mins <= 9 * 60 + 40) {
         void runPreMarketMomentumScan('POST_OPEN');
+      } else if (mins >= 9 * 60 + 30 && mins <= 10 * 60 + 5) {
+        void runPreMarketMomentumScan('RE_SCAN');
       }
     } catch (e) {
       warn(`Pre-market catch-up error: ${e}`);

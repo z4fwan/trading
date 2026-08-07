@@ -23,7 +23,7 @@ import { getDynamicIndianUniverse } from './dynamicUniverse';
 import { tickerToYahoo, getTickerName, normalizeTicker } from './marketConfig';
 import { sendPreMarketMomentumReport } from './telegramBot';
 
-export type MomentumWindow = 'PRE_OPEN' | 'POST_OPEN';
+export type MomentumWindow = 'PRE_OPEN' | 'POST_OPEN' | 'RE_SCAN';
 export type PredictionStatus = 'PENDING' | 'HIT_TARGET' | 'STOPPED_OUT' | 'DIRECTION_OK' | 'DIRECTION_WRONG';
 
 export interface MomentumPick {
@@ -68,7 +68,7 @@ interface AccuracyStats {
 }
 
 const STORE_PATH = path.join(process.cwd(), '.premarket-predictions.json');
-const MAX_PICKS = 5;
+const MAX_PICKS = 10;
 const MIN_PRICE = 20;
 const MIN_GAP_PCT = 0.5;
 const MIN_SCORE = 55;

@@ -10,9 +10,21 @@ import { isSymbolFrozen } from '@/lib/exchangeHours';
 
 const PRICE_EPS_RATIO = 0.00005;
 
+/**
+ * True only when a price/change difference is economically meaningful. Yahoo
+ * returns float noise between polls (e.g. 734.3000000001 vs 734.2999999); an
+ * exact `a !== b` compare counts that noise as a real tick, which inflates the
+ * momentum counter and forces a full re-render on every poll (the "fake
+ * momentum / constant refreshing" flicker guests see). Sub-tick jitter below
+ * one paisa (or 0.005% of magnitude for larger values) is ignored. Handles
+ * negative values (e.g. a falling stock's change) correctly.
+ */
 function priceMoved(a: number, b: number, streaming = false): boolean {
-  if (a <= 0 || b <= 0) return a !== b;
-  return a !== b;
+  if (a === b) return false;
+  if (a === 0 || b === 0) return true;
+  const mag = Math.max(Math.abs(a), Math.abs(b));
+  const eps = Math.max(0.01, mag * 0.00005);
+  return Math.abs(a - b) > eps;
 }
 
 export interface QuoteData {
@@ -229,24 +241,34 @@ export function MarketDataProvider({ children }: { children: React.ReactNode }) 
     if (Object.keys(newStocks).length > 0) {
       setStocks(prev => {
         const merged = normalizeStocksMap(prev);
+        let anyChanged = false;
         for (const [ticker, row] of Object.entries(newStocks)) {
           const prevRow = merged[ticker];
           if (prevRow && row.priceSource === 'sticky-cache') {
             merged[ticker] = { ...prevRow, timestamp: row.timestamp };
+            anyChanged = true;
             continue;
           }
           const sym = normalizeTicker(ticker);
           const rowFrozen = isSymbolFrozen(sym, mkt);
           if (prevRow && rowFrozen && !priceMoved(prevRow.price, row.price)) {
-            merged[ticker] = { ...prevRow, timestamp: row.timestamp };
+            if (!prevRow.timestamp || row.timestamp - prevRow.timestamp > 5000) {
+              merged[ticker] = { ...prevRow, timestamp: row.timestamp };
+              anyChanged = true;
+            }
             continue;
           }
-          if (prevRow && prevRow.price === row.price && prevRow.change === row.change) {
-            merged[ticker] = { ...prevRow, timestamp: row.timestamp, priceSource: row.priceSource };
+          if (prevRow && !priceMoved(prevRow.price, row.price) && !priceMoved(prevRow.change, row.change)) {
+            if (!prevRow.timestamp || row.timestamp - prevRow.timestamp > 5000) {
+              merged[ticker] = { ...prevRow, timestamp: row.timestamp, priceSource: row.priceSource };
+              anyChanged = true;
+            }
             continue;
           }
           merged[ticker] = row;
+          anyChanged = true;
         }
+        if (!anyChanged) return prev;
         return merged;
       });
     }

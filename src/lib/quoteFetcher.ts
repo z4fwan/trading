@@ -225,6 +225,15 @@ function mapQuote(raw: Record<string, unknown>, market: MarketSummary): QuoteEnt
   };
 }
 
+/** True only when a price/change differs enough to matter (kills float jitter). */
+function priceDiffers(a: number | null, b: number | null): boolean {
+  if (a == null || b == null || a === b) return a !== b;
+  if (a === 0 || b === 0) return true;
+  const mag = Math.max(Math.abs(a), Math.abs(b));
+  const eps = Math.max(0.01, mag * 0.00005);
+  return Math.abs(a - b) > eps;
+}
+
 function shouldCommit(sym: string, next: QuoteEntry, market: MarketSummary): boolean {
   const existing = getState().cache.stocks[sym] || getState().cache.indices[sym];
   if (!existing || existing.price <= 0) return true;
@@ -236,7 +245,7 @@ function shouldCommit(sym: string, next: QuoteEntry, market: MarketSummary): boo
     }
   }
 
-  return next.price !== existing.price || next.change !== existing.change;
+  return priceDiffers(next.price, existing.price) || priceDiffers(next.change, existing.change);
 }
 
 function commitEntry(sym: string, entry: QuoteEntry) {

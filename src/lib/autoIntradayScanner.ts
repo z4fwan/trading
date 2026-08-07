@@ -97,13 +97,18 @@ export async function runAutoIntradayScan(force: boolean = false): Promise<void>
   try {
     const quoteCache = getAllCachedQuotes();
     const priceMap: Record<string, number> = {};
+    const dayRanges: Record<string, { high: number; low: number }> = {};
     for (const [sym, q] of Object.entries(quoteCache)) {
       if (!q || !q.price || q.price <= 0) continue;
       const plain = sym.replace('.NS', '').replace('.BO', '');
       priceMap[sym] = q.price;
-      if (plain !== sym) priceMap[plain] = q.price;
+      if (q.high || q.low) dayRanges[sym] = { high: q.high ?? q.price, low: q.low ?? q.price };
+      if (plain !== sym) {
+        priceMap[plain] = q.price;
+        if (dayRanges[sym]) dayRanges[plain] = dayRanges[sym];
+      }
     }
-    resolveCalls(priceMap);
+    resolveCalls(priceMap, dayRanges);
   } catch { /* never block scan on resolution failure */ }
 
   const existing = getIntradayCalls();
@@ -189,15 +194,25 @@ export async function runAutoIntradayScan(force: boolean = false): Promise<void>
     if (!inUniverse) continue;
     deepScanTickers.push(inUniverse);
   }
-  const applyBullScore = (ticker: string, r: { direction: string; confidence: number; reasoning: string[]; keyFactors: string[] }): void => {
+  const applyBullScore = (ticker: string, realPrice: number, r: { direction: string; confidence: number; reasoning: string[]; keyFactors: string[] }): void => {
     const bs = bullByTicker.get(ticker);
     if (!bs) return;
     const bsDir = bs.direction === 'BUY' ? 'BULLISH' : 'BEARISH';
     const agreed = bsDir === r.direction;
+    const evidence = `BullScore verified analyst ${bs.analyst} ${bs.direction} ${bs.displayName} @₹${bs.entry} (${bs.status}, SL ₹${bs.stopLoss}, targets ₹${bs.targets.join('/')}) ${bs.ageLabel}`;
+    // The analyst's entry price must match the real market price within a
+    // reasonable band — otherwise the call is stale, wrong-sourced, or about a
+    // different instrument, and boosting/confirming on it fabricates a signal.
+    // BullScore and Yahoo can legitimately differ by a few %, so use 20%.
+    const priceDeviation = realPrice > 0 && bs.entry > 0 ? Math.abs(realPrice - bs.entry) / bs.entry : 1;
+    const priceAligned = priceDeviation <= 0.20;
+    if (!priceAligned) {
+      r.reasoning.push(`⚠ BullScore call ${bs.direction} ${bs.displayName} @₹${bs.entry} ignored — price deviates ${(priceDeviation * 100).toFixed(0)}% from live ₹${realPrice} (stale/mismatched source)`);
+      return;
+    }
     const base = Math.abs(r.confidence - 50);
     const boost = Math.round(base * (agreed ? 0.45 : -0.35));
     r.confidence = Math.max(30, Math.min(99, r.confidence + boost));
-    const evidence = `BullScore verified analyst ${bs.analyst} ${bs.direction} ${bs.displayName} @₹${bs.entry} (${bs.status}, SL ₹${bs.stopLoss}, targets ₹${bs.targets.join('/')}) ${bs.ageLabel}`;
     r.reasoning.push(agreed ? `✓ Confirmed by live BullScore call — ${evidence}` : `⚠ Conflicts with live BullScore call — ${evidence}`);
     r.keyFactors.push(`BullScore ${bs.direction === 'BUY' ? 'BUY' : 'SELL'} call (${bs.analyst})`);
   };
@@ -331,7 +346,7 @@ export async function runAutoIntradayScan(force: boolean = false): Promise<void>
       // so the 70%+ bar reflects what the model actually believes.
       const llmBaseConfidence = r.confidence;
 
-      applyBullScore(s.ticker, r);
+      applyBullScore(s.ticker, s.price, r);
       applyInstitutional(s.ticker, r);
 
       // VERY ACCURATE ALERT ONLY — strict multi-bar gate:

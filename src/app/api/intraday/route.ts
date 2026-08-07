@@ -80,17 +80,24 @@ async function fetchDailyHistory(ticker: string): Promise<{ close: number; high:
   } catch { return null; }
 }
 
-async function fetchCurrentPrices(tickers: string[]): Promise<Record<string, number>> {
+async function fetchCurrentPrices(tickers: string[]): Promise<{ prices: Record<string, number>; ranges: Record<string, { high: number; low: number }> }> {
   const prices: Record<string, number> = {};
+  const ranges: Record<string, { high: number; low: number }> = {};
   try {
     const symbols = tickers.map(t => tickerToYahoo(t));
     const quotes = await yf.quote(symbols);
     for (let i = 0; i < tickers.length; i++) {
       const q = Array.isArray(quotes) ? quotes[i] : quotes;
       if (q?.regularMarketPrice) prices[tickers[i]] = q.regularMarketPrice;
+      if (q?.regularMarketDayHigh || q?.regularMarketDayLow) {
+        ranges[tickers[i]] = {
+          high: q.regularMarketDayHigh ?? q.regularMarketPrice,
+          low: q.regularMarketDayLow ?? q.regularMarketPrice,
+        };
+      }
     }
   } catch { /* silent */ }
-  return prices;
+  return { prices, ranges };
 }
 
 function buildCallObject(
@@ -134,8 +141,8 @@ export async function GET() {
   const activeTickers = [...new Set(calls.filter(c => c.status === 'ACTIVE').map(c => c.ticker))];
 
   if (activeTickers.length > 0) {
-    const prices = await fetchCurrentPrices(activeTickers);
-    const { resolved, active } = resolveCalls(prices);
+    const { prices, ranges } = await fetchCurrentPrices(activeTickers);
+    const { resolved, active } = resolveCalls(prices, ranges);
     // Also update currentPrice even if not resolved
     for (const call of calls) {
       if (call.status === 'ACTIVE' && prices[call.ticker]) {
@@ -166,8 +173,8 @@ export async function PATCH() {
     return NextResponse.json({ calls, resolved: 0, active: 0 });
   }
 
-  const prices = await fetchCurrentPrices(activeTickers);
-  const { resolved, active } = resolveCalls(prices);
+  const { prices, ranges } = await fetchCurrentPrices(activeTickers);
+  const { resolved, active } = resolveCalls(prices, ranges);
 
   for (const call of getIntradayCalls()) {
     if (call.status === 'ACTIVE' && prices[call.ticker]) {
@@ -352,7 +359,7 @@ export async function POST() {
 
   // Fetch live prices for new calls
   const allTickers = [...new Set(intradayCalls.map(c => c.ticker))];
-  const prices = await fetchCurrentPrices(allTickers);
+  const { prices } = await fetchCurrentPrices(allTickers);
   for (const call of intradayCalls) {
     if (prices[call.ticker]) call.currentPrice = prices[call.ticker];
   }

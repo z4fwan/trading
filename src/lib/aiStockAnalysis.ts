@@ -317,6 +317,25 @@ export function clearEnsembleVerdictCache(): void {
   verdictCache.clear();
 }
 
+/**
+ * Cache writes must store a detached snapshot, NOT the live result object.
+ * Callers (autoIntradayScanner) mutate the returned verdict in place — they
+ * push to reasoning/keyFactors and inflate confidence with BullScore/NSE
+ * boosts. If we cached the same reference, that boost would leak into the
+ * cache and be re-applied every scan cycle (doubled BullScore lines, runaway
+ * confidence). Persist a copy so the next 15-min scan reads the pristine
+ * verdict and applies the boost exactly once.
+ */
+function snapshotResult(r: AIStockAnalysisResult): AIStockAnalysisResult {
+  return {
+    ...r,
+    reasoning: [...r.reasoning],
+    keyFactors: [...r.keyFactors],
+    risks: [...r.risks],
+    catalysts: [...r.catalysts],
+  };
+}
+
 // ─── Provider health window ──────────────────────────────────────────────────
 // When a free provider rate-limits (429), remember it briefly so the NEXT
 // ensemble call skips it instead of hammering it again — the retry budget then
@@ -416,7 +435,7 @@ export async function analyzeStockWithEnsembleAI(
       llmProvider: `ENSEMBLE (${solo.provider})`,
       verificationStatus: 'PARTIAL',
     };
-    verdictCache.set(ticker, { at: Date.now(), result: finalResult });
+    verdictCache.set(ticker, { at: Date.now(), result: snapshotResult(finalResult) });
     return finalResult;
   }
 
@@ -483,6 +502,6 @@ export async function analyzeStockWithEnsembleAI(
     llmProvider: finalResult.llmProvider,
   } as any);
 
-  verdictCache.set(ticker, { at: Date.now(), result: finalResult });
+  verdictCache.set(ticker, { at: Date.now(), result: snapshotResult(finalResult) });
   return finalResult;
 }

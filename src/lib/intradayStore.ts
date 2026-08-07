@@ -101,29 +101,39 @@ export function setLastGenerated(ts: number): void {
   persist();
 }
 
-export function resolveCalls(currentPrices: Record<string, number>): { resolved: number; active: number } {
+export function resolveCalls(
+  currentPrices: Record<string, number>,
+  dayRanges?: Record<string, { high: number; low: number }>,
+): { resolved: number; active: number } {
   let resolved = 0;
   for (const call of callsCache) {
     if (call.status !== 'ACTIVE') continue;
     const price = currentPrices[call.ticker] ?? currentPrices[`${call.ticker}.NS`] ?? currentPrices[`${call.ticker}.BO`];
     if (!price) continue;
     call.currentPrice = price;
+    // Use the session high/low when available: a call that tagged its target or
+    // stop intraday is resolved even if the price faded back by resolution time.
+    const range = dayRanges?.[call.ticker]
+      ?? dayRanges?.[`${call.ticker}.NS`]
+      ?? dayRanges?.[`${call.ticker}.BO`];
+    const refHigh = range?.high ?? price;
+    const refLow = range?.low ?? price;
     if (call.direction === 'BULLISH') {
-      if (price >= call.targetPrice) {
+      if (refHigh >= call.targetPrice) {
         call.status = 'HIT_TARGET';
         call.resolvedAt = Date.now();
         resolved++;
-      } else if (price <= call.stopLoss) {
+      } else if (refLow <= call.stopLoss) {
         call.status = 'STOPPED_OUT';
         call.resolvedAt = Date.now();
         resolved++;
       }
     } else {
-      if (price <= call.targetPrice) {
+      if (refLow <= call.targetPrice) {
         call.status = 'HIT_TARGET';
         call.resolvedAt = Date.now();
         resolved++;
-      } else if (price >= call.stopLoss) {
+      } else if (refHigh >= call.stopLoss) {
         call.status = 'STOPPED_OUT';
         call.resolvedAt = Date.now();
         resolved++;

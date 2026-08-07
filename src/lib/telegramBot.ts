@@ -386,7 +386,7 @@ Return: ${call.predictedReturnPct >= 0 ? '+' : ''}${call.predictedReturnPct}% | 
 
 export async function sendPreMarketMomentumReport(
   picks: { ticker: string; name: string; entry: number; target: number; stop: number; gapPct: number; score: number; signals: string[] }[],
-  window: 'PRE_OPEN' | 'POST_OPEN',
+  window: 'PRE_OPEN' | 'POST_OPEN' | 'RE_SCAN',
   stats: { resolved: number; hits: number; ok: number; wrong: number; winRate: number },
 ): Promise<void> {
   const { token, chatId } = getBotCredentials(undefined, 'IN');
@@ -394,7 +394,9 @@ export async function sendPreMarketMomentumReport(
 
   const headline = window === 'PRE_OPEN'
     ? '🔥 *FINAL PRE-OPEN ORDER BOOK CONFIRMATION*'
-    : '🔥 *OPEN CONFIRMATION — MOMENTUM PICKS HOLDING*';
+    : window === 'RE_SCAN'
+      ? '⚡ *LATE-BREAKOUT RESCAN — NEW MOMENTUM CATCHES*'
+      : '🔥 *OPEN CONFIRMATION — MOMENTUM PICKS HOLDING*';
 
   const track = stats.resolved > 0
     ? `\n📊 Track record: ${stats.hits + stats.ok}/${stats.resolved} wins (${(stats.winRate * 100).toFixed(0)}%)`
