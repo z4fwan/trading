@@ -17,6 +17,13 @@ const csp = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['yahoo-finance2'],
+  webpack: (config) => {
+    config.watchOptions = {
+      ...(config.watchOptions || {}),
+      ignored: ['**/node_modules/**', '**/src/data/**', '**/.next/**'],
+    };
+    return config;
+  },
   async headers() {
     return [
       {
