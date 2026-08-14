@@ -25,11 +25,20 @@ import { getServiceClient } from './supabase';
 
 const SENT_KEY = '__postMarketReviewSent';
 
+/** Post-market review only ever runs at/after 16:00 IST unless forced. */
+const POST_MARKET_IST_MINUTES = 16 * 60;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function istTodayKey(): string {
   const { year, month, day } = getIstDateParts();
   return `${year}-${month}-${day}`;
+}
+
+function istMinutes(): number {
+  const t = new Date().toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
+  const [hh, mm] = t.split(':').map(Number);
+  return hh * 60 + (mm || 0);
 }
 
 function isIstWeekday(): boolean {
@@ -38,13 +47,24 @@ function isIstWeekday(): boolean {
   return dow >= 1 && dow <= 5;
 }
 
-function getSentKey(): string | null {
+function getSentState(): { date: string; mins: number } | null {
   const g = globalThis as unknown as Record<string, string | undefined>;
-  return g[SENT_KEY] || null;
+  const raw = g[SENT_KEY];
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { date: string; mins: number };
+    if (parsed && parsed.date) return parsed;
+  } catch {
+    /* legacy bare-date guard → treat as set outside the post-market window */
+  }
+  return { date: raw, mins: -1 };
 }
 
 function markSent(): void {
-  (globalThis as unknown as Record<string, string>)[SENT_KEY] = istTodayKey();
+  (globalThis as unknown as Record<string, string>)[SENT_KEY] = JSON.stringify({
+    date: istTodayKey(),
+    mins: istMinutes(),
+  });
 }
 
 function todayLabel(): string {
@@ -134,9 +154,10 @@ function pickOutcomes(): PickOutcome[] {
 
   for (const p of getPreMarketPredictions()) {
     if (p.status === 'PENDING' || p.date !== todayUtc) continue;
-    const high = p.dayHigh ?? prices[p.ticker] ?? 0;
-    const low = p.dayLow ?? prices[p.ticker] ?? 0;
-    const close = p.dayClose ?? prices[p.ticker] ?? 0;
+    const range = ranges[p.ticker] ?? ranges[`${p.ticker}.NS`] ?? ranges[`${p.ticker}.BO`];
+    const high = range?.high ?? p.dayHigh ?? 0;
+    const low = range?.low ?? p.dayLow ?? 0;
+    const close = prices[p.ticker] ?? prices[`${p.ticker}.NS`] ?? prices[`${p.ticker}.BO`] ?? p.dayClose ?? 0;
     if (!high || !low || !close) continue;
     const maxGainPct = ((high - p.entry) / p.entry) * 100;
     const closePct = ((close - p.entry) / p.entry) * 100;
@@ -377,9 +398,12 @@ function renderReviewHtml(ctx: {
 
 export async function runPostMarketReview(force = false): Promise<string | null> {
   if (!force) {
-    const sent = getSentKey();
-    if (sent === istTodayKey()) return null;
+    const sent = getSentState();
+    if (sent && sent.date === istTodayKey() && sent.mins >= POST_MARKET_IST_MINUTES) return null;
     if (!isIstWeekday()) return null;
+    // Never run the "post-market" review mid-session: quotes are still moving
+    // and resolving now would freeze a premature verdict for the day.
+    if (istMinutes() < POST_MARKET_IST_MINUTES) return null;
   }
 
   // 1. Force-resolve any leftovers against the final session range.

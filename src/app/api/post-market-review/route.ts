@@ -23,6 +23,6 @@ export async function GET(req: Request) {
   const result = await runPostMarketReview(force);
   return NextResponse.json({
     ok: true,
-    message: result ?? 'No-op (already sent today, or not a weekday). Use force=1 to override.',
+    message: result ?? 'No-op (already sent today, not a weekday, or before 16:00 IST). Use force=1 to override.',
   });
 }
