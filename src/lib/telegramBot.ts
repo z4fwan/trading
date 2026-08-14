@@ -420,6 +420,38 @@ export async function sendPreMarketMomentumReport(
   }
 }
 
+export async function sendPostMarketReview(
+  sections: {
+    headline: string;
+    stats: string;
+    pickLines: string[];
+    llmLessons?: string | null;
+  },
+): Promise<void> {
+  const { token, chatId } = getBotCredentials(undefined, 'IN');
+  if (!token || !chatId) return;
+
+  let text = `${sections.headline}\n══════════════════════\n${sections.stats}`;
+
+  if (sections.pickLines.length > 0) {
+    text += `\n\n${sections.pickLines.join('\n')}`;
+  }
+
+  if (sections.llmLessons) {
+    const lessons = sections.llmLessons.slice(0, 1500);
+    text += `\n\n🧠 <b>AI SELF-LEARNING</b>\n${escapeHtml(lessons)}`;
+  }
+
+  text += `\n\n#PostMarketReview #AILearning #QuantumAlpha`;
+
+  try {
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+    await httpsPost(url, { chat_id: chatId, text, parse_mode: 'HTML' });
+  } catch (error) {
+    console.warn(`[Telegram] Error sending post-market review:`, error);
+  }
+}
+
 export async function sendRealtimePredictionAlert(alert: {
   ticker: string; name: string; direction: 'BULLISH' | 'BEARISH';
   probability: number; confidence: number; price: number; changePercent: number;

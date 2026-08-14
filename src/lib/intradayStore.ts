@@ -18,7 +18,7 @@ export interface IntradayCall {
   keyFactors: string[];
   createdAt: number;
   resolvedAt?: number;
-  status: 'ACTIVE' | 'HIT_TARGET' | 'STOPPED_OUT' | 'EXPIRED';
+  status: 'ACTIVE' | 'HIT_TARGET' | 'STOPPED_OUT' | 'EXPIRED' | 'DIRECTION_OK' | 'DIRECTION_WRONG';
 }
 
 export interface IntradayPlan {
@@ -149,6 +149,53 @@ export function resolveCalls(
       call.resolvedAt = now;
       resolved++;
     }
+  }
+  if (resolved > 0) persist();
+  return { resolved, active: callsCache.filter(c => c.status === 'ACTIVE').length };
+}
+
+/**
+ * End-of-day (post-market) resolution: resolve every ACTIVE call using the
+ * final session high/low/close. A call that tagged its target or stop is
+ * marked accordingly; otherwise it is graded DIRECTION_OK / DIRECTION_WRONG by
+ * whether the close held the call's direction. Runs once after the market
+ * closes so the day's ledger (and the AI learning loop) sees a definitive
+ * verdict for every call.
+ */
+export function resolveCallsEndOfDay(
+  currentPrices: Record<string, number>,
+  dayRanges?: Record<string, { high: number; low: number }>,
+): { resolved: number; active: number } {
+  let resolved = 0;
+  for (const call of callsCache) {
+    if (call.status !== 'ACTIVE') continue;
+    const price = currentPrices[call.ticker] ?? currentPrices[`${call.ticker}.NS`] ?? currentPrices[`${call.ticker}.BO`];
+    if (!price) continue;
+    call.currentPrice = price;
+    const range = dayRanges?.[call.ticker]
+      ?? dayRanges?.[`${call.ticker}.NS`]
+      ?? dayRanges?.[`${call.ticker}.BO`];
+    const refHigh = range?.high ?? price;
+    const refLow = range?.low ?? price;
+    if (call.direction === 'BULLISH') {
+      if (refHigh >= call.targetPrice) {
+        call.status = 'HIT_TARGET';
+      } else if (refLow <= call.stopLoss) {
+        call.status = 'STOPPED_OUT';
+      } else {
+        call.status = price > call.entryPrice ? 'DIRECTION_OK' : 'DIRECTION_WRONG';
+      }
+    } else {
+      if (refLow <= call.targetPrice) {
+        call.status = 'HIT_TARGET';
+      } else if (refHigh >= call.stopLoss) {
+        call.status = 'STOPPED_OUT';
+      } else {
+        call.status = price < call.entryPrice ? 'DIRECTION_OK' : 'DIRECTION_WRONG';
+      }
+    }
+    call.resolvedAt = Date.now();
+    resolved++;
   }
   if (resolved > 0) persist();
   return { resolved, active: callsCache.filter(c => c.status === 'ACTIVE').length };

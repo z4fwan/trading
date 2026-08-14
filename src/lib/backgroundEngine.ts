@@ -20,6 +20,7 @@ import { processNewsPipeline } from './llmNewsPipeline';
 import { getNewsForTicker, getNewsFeed, addNewsEvents } from './newsStore';
 import { runPreMarketAlphaCycle } from './preMarketEngine';
 import { runPreMarketMomentumScan, resolvePreMarketPredictions } from './preMarketMomentumEngine';
+import { runPostMarketReview } from './postMarketReview';
 import { runAutonomousLearningCycle, hydrateServerKnowledgeFromCloud } from './serverAutonomousLearning';
 import { runMarketClosedAnalysis } from './weekendRetrospective';
 import { runStockPulseLearningCycle } from './serverStockPulseLearning';
@@ -696,6 +697,11 @@ export async function startBackgroundEngine(): Promise<void> {
       void runPreMarketMomentumScan('RE_SCAN');
     } else if (hh === 15 && mm === 45) {
       resolvePreMarketPredictions(); // 15:45 resolve day's picks for the ledger
+    } else if (hh === 16 && mm === 0) {
+      // 16:00 post-market deep-learning review: force-resolve leftovers, grade
+      // every pick against the final session range, send Telegram + email, and
+      // feed the outcomes into the AI learning loop. Idempotent (date guard).
+      void runPostMarketReview().catch(e => warn(`Post-market review error: ${e}`));
     }
   }, 60000);
 
@@ -720,6 +726,23 @@ export async function startBackgroundEngine(): Promise<void> {
       warn(`Pre-market catch-up error: ${e}`);
     }
   }, 8000);
+
+  // Startup catch-up for the post-market review: if the server boots at or
+  // after 16:00 IST on a weekday, run the review once. runPostMarketReview is
+  // idempotent (per-day sent guard), so a double call is harmless.
+  setTimeout(() => {
+    const now = new Date();
+    const istTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
+    const [hh, mm] = istTime.split(':').map(Number);
+    const mins = hh * 60 + mm;
+    try {
+      if (mins >= 16 * 60) {
+        void runPostMarketReview().catch(e => warn(`Post-market catch-up error: ${e}`));
+      }
+    } catch (e) {
+      warn(`Post-market catch-up error: ${e}`);
+    }
+  }, 20000);
 let alphaDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 
   alphaDiscoveryTimer = setInterval(async () => {
