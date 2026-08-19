@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from typing import Dict, List, Set, Optional
 import asyncio
 import sys
-if sys.platform == 'win32':
+if sys.platform == 'win32' and sys.version_info < (3, 8):
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 import json
 from datetime import datetime, timedelta, timezone
@@ -1396,6 +1396,6 @@ if __name__ == "__main__":
     import uvicorn
     import sys
     import asyncio
-    if sys.platform == 'win32':
+    if sys.platform == 'win32' and sys.version_info < (3, 8):
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     uvicorn.run(app, host="0.0.0.0", port=8080)

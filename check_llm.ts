@@ -67,7 +67,7 @@ async function main() {
   let gr = 0;
   for (const k of [...groqEnv, ...groqDyn]) {
     gr++;
-    console.log(`Groq key #${gr}: ${await testOpenAICompat('groq', 'https://api.groq.com/openai/v1/chat/completions', k, process.env.LLM_MODEL || 'llama-3.1-8b-instant')}`);
+    console.log(`Groq key #${gr}: ${await testOpenAICompat('groq', 'https://api.groq.com/openai/v1/chat/completions', k, process.env.LLM_MODEL || 'openai/gpt-oss-20b')}`);
   }
   let ds = 0;
   for (const k of [...deepseekEnv]) {

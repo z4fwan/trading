@@ -87,7 +87,7 @@ function buildProviderChain(): LLMConfig[] {
     out.push({
       key: groq,
       url,
-      model: getEnvOrDynamic('LLM_MODEL') || (isOpenAi ? 'gpt-4o-mini' : 'llama-3.1-8b-instant'),
+      model: getEnvOrDynamic('LLM_MODEL') || (isOpenAi ? 'gpt-4o-mini' : 'openai/gpt-oss-20b'),
       provider: isOpenAi ? 'openai' : url.includes('groq') ? 'groq' : 'custom',
     });
   }

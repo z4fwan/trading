@@ -18,8 +18,9 @@ async function pingSupabase() {
 }
 
 async function pingPythonBackend() {
+  const baseUrl = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8080';
   try {
-    const res = await fetch('http://127.0.0.1:8080/health', { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return { reachable: false, error: `HTTP ${res.status}` };
     const data = await res.json();
     return { reachable: true, ...data };

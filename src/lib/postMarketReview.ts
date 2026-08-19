@@ -25,6 +25,17 @@ import { getServiceClient } from './supabase';
 
 const SENT_KEY = '__postMarketReviewSent';
 
+const SENT_STORE = (() => {
+  try {
+    if (typeof window === 'undefined' && typeof process !== 'undefined') {
+      const fs = eval("require('fs')") as typeof import('fs');
+      const path = eval("require('path')") as typeof import('path');
+      return path.join(process.cwd(), '.post-market-sent.json');
+    }
+  } catch { /* browser */ }
+  return null;
+})();
+
 /** Post-market review only ever runs at/after 16:00 IST unless forced. */
 const POST_MARKET_IST_MINUTES = 16 * 60;
 
@@ -47,7 +58,31 @@ function isIstWeekday(): boolean {
   return dow >= 1 && dow <= 5;
 }
 
+function readDiskSentState(): { date: string; mins: number } | null {
+  if (!SENT_STORE) return null;
+  try {
+    const fs = eval("require('fs')") as typeof import('fs');
+    if (fs.existsSync(SENT_STORE)) {
+      const raw = JSON.parse(fs.readFileSync(SENT_STORE, 'utf-8')) as { date: string; mins: number };
+      if (raw && raw.date) return raw;
+    }
+  } catch { /* corrupt or missing */ }
+  return null;
+}
+
+function writeDiskSentState(state: { date: string; mins: number }): void {
+  if (!SENT_STORE) return;
+  try {
+    const fs = eval("require('fs')") as typeof import('fs');
+    fs.writeFileSync(SENT_STORE, JSON.stringify(state), 'utf-8');
+  } catch { /* non-fatal */ }
+}
+
 function getSentState(): { date: string; mins: number } | null {
+  // Durable disk state survives server restarts — a reboot after sending must
+  // not re-send the review (this is what caused today's triple-send).
+  const disk = readDiskSentState();
+  if (disk) return disk;
   const g = globalThis as unknown as Record<string, string | undefined>;
   const raw = g[SENT_KEY];
   if (!raw) return null;
@@ -61,10 +96,9 @@ function getSentState(): { date: string; mins: number } | null {
 }
 
 function markSent(): void {
-  (globalThis as unknown as Record<string, string>)[SENT_KEY] = JSON.stringify({
-    date: istTodayKey(),
-    mins: istMinutes(),
-  });
+  const state = { date: istTodayKey(), mins: istMinutes() };
+  (globalThis as unknown as Record<string, string>)[SENT_KEY] = JSON.stringify(state);
+  writeDiskSentState(state);
 }
 
 function todayLabel(): string {
@@ -121,9 +155,41 @@ interface PickOutcome {
   closePct: number;
   /** How far the max move fell short of (negative) or overshot (positive) the target %. */
   targetDeltaPct: number;
+  /** Data-driven one-liner explaining why this pick won/lost. */
+  reason: string;
 }
 
 // ─── Data gathering ──────────────────────────────────────────────────────────
+
+/** Data-driven reason a pick ended the way it did (no LLM needed). */
+function buildReason(o: {
+  direction: 'BULLISH' | 'BEARISH';
+  status: string;
+  entry: number;
+  stop: number;
+  target: number;
+  dayHigh: number;
+  dayLow: number;
+  dayClose: number;
+  maxGainPct: number;
+  closePct: number;
+  targetDeltaPct: number;
+}): string {
+  const { status, direction, entry, stop, target, dayHigh, dayLow, dayClose, maxGainPct, closePct, targetDeltaPct } = o;
+  const shortfall = targetDeltaPct < 0 ? ` missed target by ${Math.abs(targetDeltaPct).toFixed(2)}%` : '';
+  switch (status) {
+    case 'HIT_TARGET':
+      return `Target hit — max ${maxGainPct >= 0 ? '+' : ''}${maxGainPct.toFixed(2)}%, closed ${closePct >= 0 ? '+' : ''}${closePct.toFixed(2)}%`;
+    case 'STOPPED_OUT':
+      return `Stop hit — ${direction === 'BULLISH' ? 'low' : 'high'} ₹${direction === 'BULLISH' ? dayLow : dayHigh} vs stop ₹${stop}, then closed ${closePct >= 0 ? '+' : ''}${closePct.toFixed(2)}%`;
+    case 'DIRECTION_OK':
+      return `Direction right but${shortfall} (max ${maxGainPct >= 0 ? '+' : ''}${maxGainPct.toFixed(2)}%, closed ${closePct >= 0 ? '+' : ''}${closePct.toFixed(2)}%)`;
+    case 'DIRECTION_WRONG':
+      return `Closed ${closePct >= 0 ? '+' : ''}${closePct.toFixed(2)}% vs entry ₹${entry} — momentum faded, direction wrong`;
+    default:
+      return `Closed ${closePct >= 0 ? '+' : ''}${closePct.toFixed(2)}% (target ₹${target}, stop ₹${stop})`;
+  }
+}
 
 function buildPriceMap(): { prices: Record<string, number>; ranges: Record<string, { high: number; low: number }> } {
   const quoteCache = getAllCachedQuotes();
@@ -162,6 +228,19 @@ function pickOutcomes(): PickOutcome[] {
     const maxGainPct = ((high - p.entry) / p.entry) * 100;
     const closePct = ((close - p.entry) / p.entry) * 100;
     const targetPct = ((p.target - p.entry) / p.entry) * 100;
+    const base = {
+      direction: p.direction,
+      status: p.status,
+      entry: p.entry,
+      stop: p.stop,
+      target: p.target,
+      dayHigh: high,
+      dayLow: low,
+      dayClose: close,
+      maxGainPct,
+      closePct,
+      targetDeltaPct: maxGainPct - targetPct,
+    };
     outcomes.push({
       ticker: p.ticker,
       name: p.name,
@@ -178,6 +257,7 @@ function pickOutcomes(): PickOutcome[] {
       maxGainPct,
       closePct,
       targetDeltaPct: maxGainPct - targetPct,
+      reason: buildReason(base),
     });
   }
 
@@ -192,6 +272,19 @@ function pickOutcomes(): PickOutcome[] {
       : ((c.entryPrice - low) / c.entryPrice) * 100;
     const closePct = ((close - c.entryPrice) / c.entryPrice) * 100;
     const targetPct = Math.abs((c.targetPrice - c.entryPrice) / c.entryPrice) * 100;
+    const base = {
+      direction: c.direction,
+      status: c.status,
+      entry: c.entryPrice,
+      stop: c.stopLoss,
+      target: c.targetPrice,
+      dayHigh: high,
+      dayLow: low,
+      dayClose: close,
+      maxGainPct,
+      closePct,
+      targetDeltaPct: maxGainPct - targetPct,
+    };
     outcomes.push({
       ticker: c.ticker,
       name: c.name,
@@ -208,6 +301,7 @@ function pickOutcomes(): PickOutcome[] {
       maxGainPct,
       closePct,
       targetDeltaPct: maxGainPct - targetPct,
+      reason: buildReason(base),
     });
   }
 
@@ -220,7 +314,7 @@ async function llmDeepDive(outcomes: PickOutcome[]): Promise<string | null> {
   const mkt = getMarketContext();
   const lines = outcomes.map(o => {
     const dir = o.direction === 'BULLISH' ? 'BUY' : 'SELL';
-    return `${o.ticker} (${o.source} ${dir} conf ${o.confidence}): entry ₹${o.entry} → target ₹${o.target} | stop ₹${o.stop} ⇒ ${o.status} (day high ${o.dayHigh}, low ${o.dayLow}, close ${o.dayClose}, max gain ${o.maxGainPct.toFixed(2)}%, close ${o.closePct.toFixed(2)}%)`;
+    return `${o.ticker} (${o.source} ${dir} conf ${o.confidence}): entry ₹${o.entry} → target ₹${o.target} | stop ₹${o.stop} ⇒ ${o.status} (day high ${o.dayHigh}, low ${o.dayLow}, close ${o.dayClose}, max gain ${o.maxGainPct.toFixed(2)}%, close ${o.closePct.toFixed(2)}%) — ${o.reason}`;
   }).join('\n');
 
   const wins = outcomes.filter(o => o.status === 'HIT_TARGET' || o.status === 'DIRECTION_OK').length;
@@ -334,6 +428,7 @@ function renderReviewHtml(ctx: {
       <td>${statusEmoji(o.status)} ${o.status}</td>
       <td>${o.maxGainPct.toFixed(2)}%</td>
       <td class="${o.targetDeltaPct >= 0 ? 'green' : 'red'}">${o.targetDeltaPct.toFixed(2)}%</td>
+      <td style="color:#94a3b8;max-width:260px">${o.reason}</td>
     </tr>`;
   }).join('');
 
@@ -381,7 +476,7 @@ function renderReviewHtml(ctx: {
   <h2>📋 Per-Pick Verdicts</h2>
   <div class="card">
     <table>
-      <tr><th>Ticker</th><th>Source</th><th>Call</th><th>Entry</th><th>Target</th><th>Stop</th><th>Result</th><th>Max Gain</th><th>vs Target</th></tr>
+      <tr><th>Ticker</th><th>Source</th><th>Call</th><th>Entry</th><th>Target</th><th>Stop</th><th>Result</th><th>Max Gain</th><th>vs Target</th><th>Why</th></tr>
       ${rows}
     </table>
     <p class="muted">"Max Gain" = best move from entry this session. "vs Target" = how far the max move overshot (+) or fell short (−) of the planned target.</p>
@@ -443,7 +538,7 @@ export async function runPostMarketReview(force = false): Promise<string | null>
   const stats = `🎯 ${wins}/${outcomes.length} wins (${winRate.toFixed(0)}%) — 🎯${hits} targets • ⛔${stops} stops • ✅${ok} ok • ❌${wrong} wrong`;
   const pickLines = outcomes.map((o, i) => {
     const dir = o.direction === 'BULLISH' ? '🟢' : '🔴';
-    return `${i + 1}. ${statusEmoji(o.status)} <b>${o.ticker}</b> ${dir} ${o.source} | conf ${o.confidence}%\n     Entry <code>₹${o.entry}</code> → Target <code>₹${o.target}</code> | Max <code>${o.maxGainPct >= 0 ? '+' : ''}${o.maxGainPct.toFixed(2)}%</code> (vs target ${o.targetDeltaPct >= 0 ? '+' : ''}${o.targetDeltaPct.toFixed(2)}%)`;
+    return `${i + 1}. ${statusEmoji(o.status)} <b>${o.ticker}</b> ${dir} ${o.source} | conf ${o.confidence}%\n     Entry <code>₹${o.entry}</code> → Target <code>₹${o.target}</code> | Max <code>${o.maxGainPct >= 0 ? '+' : ''}${o.maxGainPct.toFixed(2)}%</code> (vs target ${o.targetDeltaPct >= 0 ? '+' : ''}${o.targetDeltaPct.toFixed(2)}%)\n     💬 ${o.reason}`;
   });
   await sendPostMarketReview({
     headline: `📊 <b>POST-MARKET AI REVIEW — ${todayLabel()}</b>`,

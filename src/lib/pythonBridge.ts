@@ -51,6 +51,8 @@ function sanitizeVolumes(volumes: number[]): number[] {
   return finite.map(v => (v > 0 ? v : median));
 }
 
+const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8080';
+
 export async function getPythonMLPrediction(eventData: PythonEventData): Promise<PythonPrediction> {
   const prices = sanitizeSeries(eventData.prices);
   const volumes = sanitizeVolumes(eventData.volumes);
@@ -64,7 +66,7 @@ export async function getPythonMLPrediction(eventData: PythonEventData): Promise
     event: eventData.event,
   };
   try {
-    const res = await fetch('http://127.0.0.1:8080/predict', {
+    const res = await fetch(`${PYTHON_BACKEND_URL}/predict`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

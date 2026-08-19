@@ -34,6 +34,7 @@ quotes_snapshot.json
 .intraday-store.json
 .premarket-predictions.json
 .quantum_db.json
+.post-market-sent.json
 
 # Debug / one-off scripts never meant for the repo
 fix*.js

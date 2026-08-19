@@ -2,7 +2,7 @@ const fs = typeof window === 'undefined' ? eval("require('fs')") : null;
 const path = typeof window === 'undefined' ? eval("require('path')") : null;
 import { INDIAN_EQUITY_TICKERS } from './marketConfig';
 
-const DATA_FILE = path ? path.join(process.cwd(), 'src', 'data', 'dynamic_tickers.json') : '';
+const DATA_FILE = path ? path.join(process.cwd(), 'data', 'dynamic_tickers.json') : '';
 
 // In-memory cache
 let dynamicTickersCache = new Set<string>();

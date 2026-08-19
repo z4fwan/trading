@@ -210,7 +210,7 @@ async function scanPreOpen(now: Date): Promise<MomentumPick[]> {
  * fades in the first minutes is not a momentum pick — the stock must still be
  * trading above its open. Also avoids chasing huge gaps (mean-reversion risk).
  */
-async function scanPostOpen(now: Date): Promise<MomentumPick[]> {
+async function scanPostOpen(now: Date, window: MomentumWindow): Promise<MomentumPick[]> {
   const quotes = getAllCachedQuotes();
   const today = todayStr(now);
   const already = new Set(predictions.filter(p => p.date === today).map(p => p.ticker));
@@ -223,6 +223,10 @@ async function scanPostOpen(now: Date): Promise<MomentumPick[]> {
     const prevClose = q.prevClose ?? 0;
     const open = q.open ?? 0;
     if (!prevClose || !open || !isFinite(prevClose) || !isFinite(open)) continue;
+
+    // RE_SCAN alerts must be actionable at send time: only include stocks with
+    // a fresh live quote (cache rotates every ~2s, so anything older is stale).
+    if (window === 'RE_SCAN' && Date.now() - (q.timestamp ?? 0) > 3 * 60 * 1000) continue;
 
     const openGap = (open - prevClose) / prevClose * 100;
     if (openGap < MIN_GAP_PCT || openGap >= 8) continue; // chase risk above 8%
@@ -239,12 +243,16 @@ async function scanPostOpen(now: Date): Promise<MomentumPick[]> {
     if (score < MIN_SCORE) continue;
 
     const signals = [gap.label, 'holding above open', liq.label].filter(Boolean);
+    // Entry basis: the 9:12 POST_OPEN pick is "buy the open" (price ≈ open
+    // right after the auction), but a 9:30+ RE_SCAN must quote the LIVE price
+    // — quoting yesterday's open there makes the alert look stale/wrong.
+    const base = window === 'RE_SCAN' ? price : open;
     picks.push({
       ticker,
       name: getTickerName(ticker),
-      entry: open,
-      target: +(open * (1 + TARGET_PCT / 100)).toFixed(2),
-      stop: +(open * (1 - STOP_PCT / 100)).toFixed(2),
+      entry: base,
+      target: +(base * (1 + TARGET_PCT / 100)).toFixed(2),
+      stop: +(base * (1 - STOP_PCT / 100)).toFixed(2),
       gapPct: openGap,
       score,
       signals,
@@ -268,7 +276,7 @@ export async function runPreMarketMomentumScan(window: MomentumWindow, opts?: { 
 
   let picks: MomentumPick[] = [];
   try {
-    picks = window === 'PRE_OPEN' ? await scanPreOpen(now) : await scanPostOpen(now);
+    picks = window === 'PRE_OPEN' ? await scanPreOpen(now) : await scanPostOpen(now, window);
   } catch (e) {
     console.error(`[PreMarketMomentum] ${window} scan failed:`, e);
     return [];
