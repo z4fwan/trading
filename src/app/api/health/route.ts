@@ -35,7 +35,21 @@ export const runtime = 'nodejs';
 export async function GET() {
   ensureBackgroundEngine();
   const now = Date.now();
-  const engine = getEngineState();
+  let engine = getEngineState();
+
+  // When running under server.js (CUSTOM_SERVER), the worker runs in a child process.
+  // Its state is streamed via IPC into global.__enginePayload as a JSON string.
+  // Merge that into the local state so the API reflects the real engine.
+  if (process.env.CUSTOM_SERVER === 'true') {
+    const remote = (globalThis as Record<string, string>).__enginePayload;
+    if (remote && typeof remote === 'string' && remote.length > 2) {
+      try {
+        const parsed = JSON.parse(remote);
+        engine = { ...engine, ...parsed } as typeof engine;
+      } catch { /* ignore parse errors */ }
+    }
+  }
+
   const uptime = process.uptime();
   const quoteAge = engine.lastQuote ? now - engine.lastQuote : -1;
   const mlAge = engine.lastMLCycle ? now - engine.lastMLCycle : -1;

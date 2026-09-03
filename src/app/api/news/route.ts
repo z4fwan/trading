@@ -185,7 +185,7 @@ function newsResponse(engine: ReturnType<typeof getEngineState>, news: Classifie
   });
 }
 
-export async function GET(req?: Request) {
+export async function GET(req: Request) {
   ensureBackgroundEngine();
   const url = req ? new URL(req.url) : null;
   const forceRefresh = url?.searchParams.get('refresh') === 'true';

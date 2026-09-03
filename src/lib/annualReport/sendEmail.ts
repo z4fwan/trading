@@ -42,22 +42,30 @@ export async function sendEmailSmtp(to: string, subject: string, html: string): 
   const user = process.env.SMTP_USER || process.env.GMAIL_USER;
   const pass = process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
 
-  if (!user || !pass) return { ok: false, error: 'SMTP_USER and SMTP_PASS (Gmail app password) not set' };
-
-  try {
-    const nodemailer = await import('nodemailer');
-    const transport = nodemailer.createTransport({
-      host, port, secure: port === 465,
-      auth: { user, pass },
-    });
-    await transport.sendMail({
-      from: process.env.SMTP_FROM || `"Quantum Alpha Terminal" <${user}>`,
-      to, subject, html,
-    });
-    return { ok: true, method: 'smtp' };
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  if (!user || !pass) {
+    console.warn(`[Email] SMTP_USER/GMAIL_USER or SMTP_PASS/GMAIL_APP_PASSWORD not set. Skipping email to ${to}.`);
+    return { ok: false, error: 'SMTP_USER and SMTP_PASS (Gmail app password) not set' };
   }
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const nodemailer = await import('nodemailer');
+      const transport = nodemailer.createTransport({
+        host, port, secure: port === 465,
+        auth: { user, pass },
+      });
+      await transport.sendMail({
+        from: process.env.SMTP_FROM || `"Quantum Alpha Terminal" <${user}>`,
+        to, subject, html,
+      });
+      console.log(`[Email] Sent successfully to ${to} via ${host} (attempt ${attempt})`);
+      return { ok: true, method: 'smtp' };
+    } catch (e) {
+      console.warn(`[Email] SMTP attempt ${attempt} failed:`, e instanceof Error ? e.message : String(e));
+      if (attempt < 2) await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+  return { ok: false, error: 'SMTP failed after 2 attempts' };
 }
 
 /** Gmail / SMTP via fetch to Brevo-style or use nodemailer if SMTP_* set — lightweight SMTP using native socket is heavy; prefer Resend + Gmail forwarding doc.

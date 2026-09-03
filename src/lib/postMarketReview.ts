@@ -16,12 +16,13 @@
 
 import { getPreMarketPredictions, resolvePreMarketPredictions, getPreMarketStats } from './preMarketMomentumEngine';
 import { getIntradayCalls, resolveCallsEndOfDay, type IntradayCall } from './intradayStore';
-import { getAllCachedQuotes, getMarketContext } from './quoteFetcher';
+import { getAllCachedQuotes, getMarketContext, getLivePrice } from './quoteFetcher';
 import { getIstDateParts } from './adminAuthServer';
 import { callLLM } from './llmProvider';
 import { sendPostMarketReview } from './telegramBot';
 import { sendEmailSmtp } from './annualReport/sendEmail';
 import { getServiceClient } from './supabase';
+import { tickerToYahoo } from './marketConfig';
 
 const SENT_KEY = '__postMarketReviewSent';
 
@@ -504,7 +505,7 @@ export async function runPostMarketReview(force = false): Promise<string | null>
   // 1. Force-resolve any leftovers against the final session range.
   const { prices, ranges } = buildPriceMap();
   try {
-    resolvePreMarketPredictions();
+    await resolvePreMarketPredictions();
     const intraday = resolveCallsEndOfDay(prices, ranges);
     if (intraday.resolved > 0) {
       console.log(`[PostMarketReview] End-of-day resolved ${intraday.resolved} intraday calls (${intraday.active} left active)`);
@@ -513,11 +514,35 @@ export async function runPostMarketReview(force = false): Promise<string | null>
     console.warn(`[PostMarketReview] Resolution step failed:`, e);
   }
 
-  // 2. Collect the day's outcomes.
+  // 2. Force-resolve any remaining PENDING picks that the first pass missed
+  //    (tickers missing from quote cache at 15:45 / first resolve).
+  try {
+    const pending = getPreMarketPredictions().filter(p => p.status === 'PENDING' && p.date === new Date().toISOString().split('T')[0]);
+    if (pending.length > 0) {
+      console.log(`[PostMarketReview] Attempting to resolve ${pending.length} remaining PENDING picks...`);
+      for (const p of pending) {
+        try {
+          const price = await getLivePrice(tickerToYahoo(p.ticker));
+          if (price && price > 0) {
+            p.dayClose = price;
+            p.dayHigh = price;
+            p.dayLow = price;
+            p.status = price > p.entry ? 'DIRECTION_OK' : 'DIRECTION_WRONG';
+            p.resolvedAt = Date.now();
+            console.log(`[PostMarketReview] Resolved ${p.ticker} → ${p.status} (price ₹${price})`);
+          }
+        } catch { /* ticker unavailable */ }
+      }
+    }
+  } catch (e) {
+    console.warn(`[PostMarketReview] Fallback resolution error:`, e);
+  }
+
+  // 3. Collect the day's outcomes.
   const outcomes = pickOutcomes();
   if (outcomes.length === 0) {
     console.log(`[PostMarketReview] No resolved calls today — nothing to review.`);
-    markSent();
+    // Don't markSent here — allow re-run on next boot to catch missed outcomes.
     return null;
   }
 
@@ -534,20 +559,31 @@ export async function runPostMarketReview(force = false): Promise<string | null>
     lessons = await llmDeepDive(outcomes);
   } catch { /* optional */ }
 
-  // 4. Telegram.
+  // 5. Telegram (with retry).
   const stats = `🎯 ${wins}/${outcomes.length} wins (${winRate.toFixed(0)}%) — 🎯${hits} targets • ⛔${stops} stops • ✅${ok} ok • ❌${wrong} wrong`;
   const pickLines = outcomes.map((o, i) => {
     const dir = o.direction === 'BULLISH' ? '🟢' : '🔴';
     return `${i + 1}. ${statusEmoji(o.status)} <b>${o.ticker}</b> ${dir} ${o.source} | conf ${o.confidence}%\n     Entry <code>₹${o.entry}</code> → Target <code>₹${o.target}</code> | Max <code>${o.maxGainPct >= 0 ? '+' : ''}${o.maxGainPct.toFixed(2)}%</code> (vs target ${o.targetDeltaPct >= 0 ? '+' : ''}${o.targetDeltaPct.toFixed(2)}%)\n     💬 ${o.reason}`;
   });
-  await sendPostMarketReview({
-    headline: `📊 <b>POST-MARKET AI REVIEW — ${todayLabel()}</b>`,
-    stats,
-    pickLines: pickLines.slice(0, 18),
-    llmLessons: lessons,
-  });
+  let telegramSent = false;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await sendPostMarketReview({
+        headline: `📊 <b>POST-MARKET AI REVIEW — ${todayLabel()}</b>`,
+        stats,
+        pickLines: pickLines.slice(0, 18),
+        llmLessons: lessons,
+      });
+      telegramSent = true;
+      console.log(`[PostMarketReview] Telegram sent successfully (attempt ${attempt})`);
+      break;
+    } catch (e) {
+      console.warn(`[PostMarketReview] Telegram send attempt ${attempt} failed:`, e);
+      if (attempt < 2) await new Promise(r => setTimeout(r, 5000));
+    }
+  }
 
-  // 5. Email.
+  // 6. Email (with retry).
   const html = renderReviewHtml({
     date: todayLabel(),
     outcomes,
@@ -563,15 +599,29 @@ export async function runPostMarketReview(force = false): Promise<string | null>
     lessons,
   });
   const to = process.env.ANNUAL_REPORT_EMAIL || process.env.ADMIN_EMAIL || 'zn4.editz@gmail.com';
-  const email = await sendEmailSmtp(to, `Quantum Alpha — Post-Market Review ${todayLabel()}`, html);
+  let email = { ok: false, error: 'not attempted' };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    email = await sendEmailSmtp(to, `Quantum Alpha — Post-Market Review ${todayLabel()}`, html);
+    if (email.ok) {
+      console.log(`[PostMarketReview] Email sent successfully to ${to} (attempt ${attempt})`);
+      break;
+    }
+    console.warn(`[PostMarketReview] Email send attempt ${attempt} failed:`, email.error);
+    if (attempt < 2) await new Promise(r => setTimeout(r, 5000));
+  }
 
-  // 6. Feed learning loop.
+  // 7. Feed learning loop.
   const fed = await feedLearningLoop(outcomes);
 
-  markSent();
+  // Mark sent ONLY after at least one delivery channel succeeded.
+  if (telegramSent || email.ok) {
+    markSent();
+  } else {
+    console.warn(`[PostMarketReview] Both Telegram and email failed. NOT marking as sent — will retry on next boot.`);
+  }
 
   const pmStats = getPreMarketStats();
-  const msg = `Post-market review sent → Telegram + ${email.ok ? to : `email failed (${email.error})`}. ${fed} outcomes fed to learning loop. All-time pre-market: ${pmStats.resolved} resolved, ${(pmStats.winRate * 100).toFixed(0)}% win.`;
+  const msg = `Post-market review: Telegram ${telegramSent ? '✅' : '❌'}, Email ${email.ok ? '✅' : `❌ (${email.error})`}. ${fed} outcomes fed to learning loop. All-time pre-market: ${pmStats.resolved} resolved, ${(pmStats.winRate * 100).toFixed(0)}% win.`;
   console.log(`[PostMarketReview] ${msg}`);
   return msg;
 }

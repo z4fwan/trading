@@ -18,7 +18,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fetchLivePreOpenData, type PreOpenData } from './nsePreOpenFetcher';
-import { getAllCachedQuotes } from './quoteFetcher';
+import { getAllCachedQuotes, getLivePrice } from './quoteFetcher';
 import { getDynamicIndianUniverse } from './dynamicUniverse';
 import { tickerToYahoo, getTickerName, normalizeTicker } from './marketConfig';
 import { sendPreMarketMomentumReport } from './telegramBot';
@@ -329,16 +329,28 @@ export async function runPreMarketMomentumScan(window: MomentumWindow, opts?: { 
  * DIRECTION_OK / DIRECTION_WRONG using the day's cached high/low/close. Runs
  * after the close so the accuracy ledger is fresh each morning.
  */
-export function resolvePreMarketPredictions(now = new Date()): number {
+export async function resolvePreMarketPredictions(now = new Date()): Promise<number> {
   const quotes = getAllCachedQuotes();
   let resolved = 0;
 
   for (const p of predictions) {
     if (p.status !== 'PENDING' || !isToday(p.date)) continue;
-    const q = quotes[tickerToYahoo(p.ticker)];
+    const yahooSym = tickerToYahoo(p.ticker);
+    let q = quotes[yahooSym];
+    // Fallback: try bare ticker if .NS lookup failed
+    if (!q) q = quotes[p.ticker];
+    // Last resort: fetch live price for missing tickers
+    if (!q || !q.high || !q.low || !q.price) {
+      try {
+        const livePrice = await getLivePrice(yahooSym);
+        if (livePrice && livePrice > 0) {
+          q = { price: livePrice, high: livePrice, low: livePrice, open: livePrice, volume: 0, change: 0, changePercent: 0 };
+        }
+      } catch { /* ticker unavailable */ }
+    }
     if (!q) continue;
-    const high = q.high ?? 0;
-    const low = q.low ?? 0;
+    const high = q.high ?? q.price ?? 0;
+    const low = q.low ?? q.price ?? 0;
     const close = q.price ?? 0;
     if (!high || !low || !close) continue;
 

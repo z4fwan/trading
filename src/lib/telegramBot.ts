@@ -85,9 +85,6 @@ function getBotCredentials(ticker?: string, explicitMarket?: string): { token: s
 }
 
 export async function sendTelegramAlert(item: ClassifiedNewsItem): Promise<void> {
-  // Disabled: The FastAPI V7 backend now handles all Telegram alerting.
-  return;
-  
   // Prevent duplicate notifications
   const hash = `${item.headline.slice(0, 30)}|${item.llmTradingSignal}`;
   if (notifiedItems.has(hash)) return;
@@ -193,9 +190,6 @@ ${gem.reasons.map(r => `• ${escapeHtml(r)}`).join('\n')}
 }
 
 export async function sendTelegramMessage(text: string, explicitMarket?: string): Promise<{ message_id: number; chat_id: number | string } | null> {
-  // Disabled: The FastAPI V7 backend now handles all Telegram alerting.
-  return null;
-
   let token = TELEGRAM_BOT_TOKEN;
   let chatId = TELEGRAM_CHAT_ID;
 
@@ -447,8 +441,10 @@ export async function sendPostMarketReview(
   try {
     const url = `https://api.telegram.org/bot${token}/sendMessage`;
     await httpsPost(url, { chat_id: chatId, text, parse_mode: 'HTML' });
+    console.log(`[Telegram] Post-market review sent successfully`);
   } catch (error) {
-    console.warn(`[Telegram] Error sending post-market review:`, error);
+    console.error(`[Telegram] Error sending post-market review:`, error);
+    throw error;
   }
 }
 

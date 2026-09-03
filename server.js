@@ -25,7 +25,59 @@ process.on('unhandledRejection', (reason, promise) => {
 global.__quotesPayload = '';
 global.__enginePayload = '';
 global.__wsClients = new Set();
+global.__lastCronWake = 0;
+global.__lastHttpRequest = Date.now();
 process.env.CUSTOM_SERVER = 'true';
+
+// ─── IST Auto-Shutdown for Render Free Tier ─────────────────────────────────
+// The server auto-exits outside market hours to save Render free tier credits.
+// External cron (cron-job.org) pings /api/cron/wake to keep it alive during
+// the two market windows: 08:00-10:05 IST and 15:00-16:30 IST.
+function getIstNow() {
+  const now = new Date();
+  const t = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'short' });
+  const parts = t.split(' ');
+  const day = parts[0];
+  const [hh, mm] = (parts.length > 1 ? parts[1] : parts[0]).split(':').map(Number);
+  return { hh, mm, mins: hh * 60 + mm, weekday: !['Sat', 'Sun'].includes(day) };
+}
+
+function isMarketWindow(mins, weekday) {
+  if (!weekday) return false;
+  // 08:00-10:05 IST (pre-market + morning scans)
+  if (mins >= 480 && mins <= 605) return true;
+  // 15:00-16:30 IST (resolution + post-market review)
+  if (mins >= 900 && mins <= 990) return true;
+  return false;
+}
+
+// Track HTTP activity so we don't shut down while humans are using the dashboard
+global.__lastHttpRequest = Date.now();
+
+// Auto-shutdown check every 60 seconds
+setInterval(() => {
+  const ist = getIstNow();
+  const now = Date.now();
+  const lastWake = global.__lastCronWake || 0;
+  const lastHttp = global.__lastHttpRequest || 0;
+  const timeSinceWake = now - lastWake;
+  const timeSinceHttp = now - lastHttp;
+
+  if (isMarketWindow(ist.mins, ist.weekday)) {
+    // During market hours: always stay alive
+    return;
+  }
+
+  // Allow 15 min grace after cron wake or human activity
+  const idleMs = Math.min(timeSinceWake, timeSinceHttp);
+  if (idleMs < 15 * 60 * 1000) return;
+
+  console.log(`[AutoShutdown] Outside market hours (${String(ist.hh).padStart(2,'0')}:${String(ist.mm).padStart(2,'0')} IST), idle ${Math.round(idleMs/60000)}min. Shutting down to save Render credits.`);
+  if (global.__worker) {
+    try { global.__worker.kill('SIGTERM'); } catch {}
+  }
+  process.exit(0);
+}, 60000);
 
 function wsBroadcast() {
   if (!global.__quotesPayload || global.__wsClients.size === 0) return;
@@ -66,6 +118,7 @@ function wsBroadcastAlert() {
 app.prepare().then(() => {
   const server = createServer(async (req, res) => {
     try {
+      global.__lastHttpRequest = Date.now();
       const parsedUrl = parse(req.url, true);
       
       // V4 Architecture: API routes run in a separate process and lack access to the ML worker's memory.

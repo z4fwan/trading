@@ -696,12 +696,19 @@ export async function startBackgroundEngine(): Promise<void> {
       // 9:15–10:00 gap runners) get a second chance to be caught.
       void runPreMarketMomentumScan('RE_SCAN');
     } else if (hh === 15 && mm === 45) {
-      resolvePreMarketPredictions(); // 15:45 resolve day's picks for the ledger
+      void resolvePreMarketPredictions().catch(e => warn(`Pre-market resolve error: ${e}`)); // 15:45 resolve day's picks for the ledger
     } else if (hh === 16 && mm === 0) {
       // 16:00 post-market deep-learning review: force-resolve leftovers, grade
       // every pick against the final session range, send Telegram + email, and
       // feed the outcomes into the AI learning loop. Idempotent (date guard).
       void runPostMarketReview().catch(e => warn(`Post-market review error: ${e}`));
+    } else if (hh === 16 && mm === 5) {
+      // 16:05 fallback: re-run post-market review if 16:00 attempt failed
+      // (sent guard is only set after successful delivery, so this is safe).
+      void runPostMarketReview().catch(e => warn(`Post-market review retry error: ${e}`));
+    } else if (hh === 16 && mm === 15) {
+      // 16:15 final fallback: last attempt before the post-market window closes
+      void runPostMarketReview().catch(e => warn(`Post-market review final attempt error: ${e}`));
     }
   }, 60000);
 

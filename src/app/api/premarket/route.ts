@@ -20,7 +20,7 @@ export async function POST(request: Request) {
   try { body = await request.json(); } catch { /* empty body ok */ }
 
   if (body.action === 'resolve') {
-    const resolved = resolvePreMarketPredictions();
+    const resolved = await resolvePreMarketPredictions();
     return NextResponse.json({ resolved, stats: getPreMarketStats() });
   }
 

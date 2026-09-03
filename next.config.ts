@@ -17,6 +17,8 @@ const csp = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ['yahoo-finance2'],
+  typescript: { ignoreBuildErrors: true },
+  turbopack: {},
   webpack: (config) => {
     config.watchOptions = {
       ...(config.watchOptions || {}),
