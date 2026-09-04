@@ -77,9 +77,9 @@ let lastSupabaseKeepalive = 0;
 const QUOTE_INTERVAL_MS = process.env.QUOTE_INTERVAL_MS
   ? parseInt(process.env.QUOTE_INTERVAL_MS, 10)
   : isRenderBandwidthSaver()
-    ? 4000
+    ? 10000
     : process.env.RENDER === 'true'
-      ? 2000
+      ? 6000
       : 500;
 const ML_BATCH_SIZE = process.env.RENDER === 'true' ? 10 : process.env.NODE_ENV === 'development' ? 10 : 18;
 const MEMORY_PRESSURE_MB = process.env.RENDER === 'true' ? 420 : 512;

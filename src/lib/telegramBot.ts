@@ -505,7 +505,7 @@ export function startTelegramBotListener() {
 
   const poll = async () => {
     try {
-      const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
+      const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=10`;
       const res = await httpsGet(url);
       if (res && res.ok && res.result) {
         for (const update of res.result) {
@@ -520,7 +520,7 @@ export function startTelegramBotListener() {
     } catch (e) {
       console.warn('[Telegram] Polling error:', e);
     }
-    setTimeout(poll, 1000);
+    setTimeout(poll, 5000);
   };
   
   poll();
