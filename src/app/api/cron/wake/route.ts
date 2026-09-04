@@ -17,7 +17,9 @@ function getIstTime(): { hh: number; mm: number; mins: number; weekday: boolean 
 
 function isMarketHours(mins: number, weekday: boolean): boolean {
   if (!weekday) return false;
-  return (mins >= 480 && mins <= 605) || (mins >= 900 && mins <= 990);
+  // 07:00-10:20 IST (overnight AI + pre-market + morning scans)
+  // 15:00-16:40 IST (resolution + post-market review)
+  return (mins >= 420 && mins <= 620) || (mins >= 900 && mins <= 1000);
 }
 
 export async function GET(req: Request) {
@@ -47,7 +49,7 @@ export async function GET(req: Request) {
   };
 
   if (!inMarketHours && ist.weekday) {
-    if (ist.mins > 990) {
+    if (ist.mins > 1000) {
       response.action = 'post-market-window';
       response.note = 'Post-market hours. Server will stay alive for post-market review.';
     } else {

@@ -32,7 +32,7 @@ process.env.CUSTOM_SERVER = 'true';
 // ─── IST Auto-Shutdown for Render Free Tier ─────────────────────────────────
 // The server auto-exits outside market hours to save Render free tier credits.
 // External cron (cron-job.org) pings /api/cron/wake to keep it alive during
-// the two market windows: 08:00-10:05 IST and 15:00-16:30 IST.
+// the two market windows: 07:00-10:20 IST and 15:00-16:40 IST.
 function getIstNow() {
   const now = new Date();
   const t = now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata', hour12: false, hour: '2-digit', minute: '2-digit', weekday: 'short' });
@@ -44,10 +44,10 @@ function getIstNow() {
 
 function isMarketWindow(mins, weekday) {
   if (!weekday) return false;
-  // 08:00-10:05 IST (pre-market + morning scans)
-  if (mins >= 480 && mins <= 605) return true;
-  // 15:00-16:30 IST (resolution + post-market review)
-  if (mins >= 900 && mins <= 990) return true;
+  // 07:00-10:20 IST (overnight AI + pre-market + morning scans)
+  if (mins >= 420 && mins <= 620) return true;
+  // 15:00-16:40 IST (resolution + post-market review)
+  if (mins >= 900 && mins <= 1000) return true;
   return false;
 }
 
