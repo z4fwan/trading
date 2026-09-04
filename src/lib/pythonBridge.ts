@@ -53,7 +53,14 @@ function sanitizeVolumes(volumes: number[]): number[] {
 
 const PYTHON_BACKEND_URL = process.env.PYTHON_BACKEND_URL || 'http://127.0.0.1:8080';
 
+let _backendDown = false;
+let _backendDownUntil = 0;
+const BACKOFF_MS = 5 * 60 * 1000; // 5 min backoff when backend unreachable
+
 export async function getPythonMLPrediction(eventData: PythonEventData): Promise<PythonPrediction> {
+  if (_backendDown && Date.now() < _backendDownUntil) {
+    throw new Error('Python ML Backend offline (backoff)');
+  }
   const prices = sanitizeSeries(eventData.prices);
   const volumes = sanitizeVolumes(eventData.volumes);
   if (prices.length < 10) {
@@ -76,6 +83,9 @@ export async function getPythonMLPrediction(eventData: PythonEventData): Promise
       signal: AbortSignal.timeout(PREDICT_TIMEOUT_MS),
     });
     
+    // Backend is reachable — reset backoff
+    _backendDown = false;
+    
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Unknown API error' }));
       throw new Error(`Python ML Engine Error [${res.status}]: ${JSON.stringify(err)}`);
@@ -83,9 +93,15 @@ export async function getPythonMLPrediction(eventData: PythonEventData): Promise
     
     const data = await res.json();
     return data as PythonPrediction;
-  } catch (e) {
-    // NO SILENT FAILURES. The ML Pipeline is strictly Python now.
-    console.error('[ML Pipeline] Critical failure in Python Bridge:', e);
+  } catch (e: any) {
+    // If backend is unreachable, back off instead of spamming every cycle
+    if (e?.cause?.code === 'ECONNREFUSED' || e?.message?.includes('ECONNREFUSED')) {
+      if (!_backendDown) {
+        console.warn('[ML Pipeline] Python Backend offline — backing off for 5 min');
+      }
+      _backendDown = true;
+      _backendDownUntil = Date.now() + BACKOFF_MS;
+    }
     throw e;
   }
 }

@@ -958,7 +958,7 @@ const whaleAlertCooldown = new Map<string, number>();
 async function runWhaleSMCScanner(): Promise<void> {
   if (shuttingDown) return;
   try {
-    const whaleTargets = ['XAUUSD=X', 'EURUSD=X', '^DJI', '^IXIC'];
+    const whaleTargets = ['^DJI', '^IXIC', '^NSEI', '^BSESN'];
     for (const ticker of whaleTargets) {
       if (shuttingDown) break;
       const history = await rateLimitedHistory(ticker);
