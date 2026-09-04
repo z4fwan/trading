@@ -61,7 +61,7 @@ function buildProviderChain(): LLMConfig[] {
   
   const geminiKeys = (getEnvOrDynamic('GEMINI_API_KEY') || '').split(',').map(k => k.trim()).filter(Boolean);
   for (const gemini of geminiKeys) {
-    const model = getEnvOrDynamic('GEMINI_MODEL') || 'gemini-2.0-flash';
+    const model = getEnvOrDynamic('GEMINI_MODEL') || 'gemini-flash-latest';
     out.push({
       key: gemini,
       url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
