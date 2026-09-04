@@ -942,7 +942,7 @@ async function runOptionsFlowCycle(): Promise<void> {
 async function runBacktestCycle(): Promise<void> {
   if (shuttingDown) return;
   try {
-    const tickers = ['RELIANCE.NS', 'TCS.NS', 'AAPL', 'MSFT', 'BTC-USD'];
+    const tickers = ['RELIANCE.NS', 'TCS.NS', 'INFY.NS', 'HDFCBANK.NS', 'ICICIBANK.NS'];
     const historyMap = new Map();
     for (const t of tickers) {
       const hist = await rateLimitedHistory(t);
@@ -958,7 +958,7 @@ const whaleAlertCooldown = new Map<string, number>();
 async function runWhaleSMCScanner(): Promise<void> {
   if (shuttingDown) return;
   try {
-    const whaleTargets = ['XAUUSD=X', 'EURUSD=X', '^DJI', '^IXIC', 'BTC-USD', 'ETH-USD'];
+    const whaleTargets = ['XAUUSD=X', 'EURUSD=X', '^DJI', '^IXIC'];
     for (const ticker of whaleTargets) {
       if (shuttingDown) break;
       const history = await rateLimitedHistory(ticker);
