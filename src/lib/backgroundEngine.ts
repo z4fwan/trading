@@ -29,6 +29,7 @@ import { checkScheduledReports } from './annualReport/schedule';
 import { runAutoReviewCycle } from './autoReviewQueue';
 import { getPythonMLPrediction, type PythonEventData } from './pythonBridge';
 import { runAutoIntradayScan } from './autoIntradayScanner';
+import { runLongTermStockPicker } from './longTermStockPicker';
 import { getIntradayCalls, getIntradayPlan } from './intradayStore';
 import { evaluateRealtimeMarket, queueNewsTrigger } from './realtimeWatchdog';
 
@@ -709,6 +710,13 @@ export async function startBackgroundEngine(): Promise<void> {
     } else if (hh === 16 && mm === 15) {
       // 16:15 final fallback: last attempt before the post-market window closes
       void runPostMarketReview().catch(e => warn(`Post-market review final attempt error: ${e}`));
+    } else if (hh === 16 && mm === 20) {
+      // 16:20 Long-term stock pick: scan full Nifty 500, score growth/value/quality,
+      // LLM deep analysis on top 5, send detailed email with long-term recommendations
+      void runLongTermStockPicker().catch(e => warn(`Long-term picker error: ${e}`));
+    } else if (hh === 16 && mm === 25) {
+      // 16:25 fallback: retry long-term picker if 16:20 failed
+      void runLongTermStockPicker().catch(e => warn(`Long-term picker retry error: ${e}`));
     }
   }, 60000);
 
@@ -750,6 +758,23 @@ export async function startBackgroundEngine(): Promise<void> {
       warn(`Post-market catch-up error: ${e}`);
     }
   }, 20000);
+
+  // Startup catch-up for long-term stock picker: if the server boots at or
+  // after 16:20 IST on a weekday, run the picker once.
+  setTimeout(() => {
+    const now = new Date();
+    const istTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
+    const [hh, mm] = istTime.split(':').map(Number);
+    const mins = hh * 60 + mm;
+    try {
+      if (mins >= 16 * 60 + 20) {
+        void runLongTermStockPicker().catch(e => warn(`Long-term picker catch-up error: ${e}`));
+      }
+    } catch (e) {
+      warn(`Long-term picker catch-up error: ${e}`);
+    }
+  }, 25000);
+
 let alphaDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
 
   alphaDiscoveryTimer = setInterval(async () => {
