@@ -711,12 +711,21 @@ export async function startBackgroundEngine(): Promise<void> {
       // 16:15 final fallback: last attempt before the post-market window closes
       void runPostMarketReview().catch(e => warn(`Post-market review final attempt error: ${e}`));
     } else if (hh === 16 && mm === 20) {
-      // 16:20 Long-term stock pick: scan full Nifty 500, score growth/value/quality,
-      // LLM deep analysis on top 5, send detailed email with long-term recommendations
-      void runLongTermStockPicker().catch(e => warn(`Long-term picker error: ${e}`));
+      // 16:20 Long-term study system (weekdays, IST):
+      //   Mon-Thu: daily deep scan of Nifty 500 → top 20 → daily observations
+      //            stored in Supabase (accumulated over the week).
+      //   Fri:     review full week of daily data, LLM deep analysis on top
+      //            3-5, send detailed email with long-term recommendations.
+      const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
+      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        void runLongTermStockPicker().catch(e => warn(`Long-term picker error: ${e}`));
+      }
     } else if (hh === 16 && mm === 25) {
-      // 16:25 fallback: retry long-term picker if 16:20 failed
-      void runLongTermStockPicker().catch(e => warn(`Long-term picker retry error: ${e}`));
+      // 16:25 fallback: retry long-term study if 16:20 failed (weekdays only)
+      const dayOfWeek = now.getDay();
+      if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+        void runLongTermStockPicker().catch(e => warn(`Long-term picker retry error: ${e}`));
+      }
     }
   }, 60000);
 
@@ -759,15 +768,18 @@ export async function startBackgroundEngine(): Promise<void> {
     }
   }, 20000);
 
-  // Startup catch-up for long-term stock picker: if the server boots at or
-  // after 16:20 IST on a weekday, run the picker once.
+  // Startup catch-up for long-term stock study: if the server boots at or
+  // after 16:20 IST on a weekday (Mon-Fri), run the study/pick once.
+  // Idempotent per-day (Supabase upsert keyed on date,ticker), so a double call
+  // is harmless.
   setTimeout(() => {
     const now = new Date();
     const istTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
     const [hh, mm] = istTime.split(':').map(Number);
     const mins = hh * 60 + mm;
+    const dayOfWeek = now.getDay(); // 0=Sun, 1=Mon, ..., 5=Fri, 6=Sat
     try {
-      if (mins >= 16 * 60 + 20) {
+      if (mins >= 16 * 60 + 20 && dayOfWeek >= 1 && dayOfWeek <= 5) {
         void runLongTermStockPicker().catch(e => warn(`Long-term picker catch-up error: ${e}`));
       }
     } catch (e) {
