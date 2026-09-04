@@ -218,6 +218,11 @@ async function callGemini(
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
     console.warn(`[Gemini] API ${res.status}: ${errText.slice(0, 300)}`);
+    // Record rate limit so the provider is temporarily skipped instead of being
+    // retried on every single call (Gemini free tier is aggressively throttled).
+    if (res.status === 429 || res.status === 503) {
+      recordRateLimit('gemini', extractRetryAfter(errText));
+    }
     return null;
   }
 
