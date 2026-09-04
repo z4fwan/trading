@@ -32,12 +32,14 @@ export async function GET(req: Request) {
 
   const ist = getIstTime();
   const now = Date.now();
+  const inMarketHours = isMarketHours(ist.mins, ist.weekday);
 
-  if (typeof globalThis !== 'undefined') {
+  // Only record the wake during market hours — outside market hours the cron
+  // ping should NOT extend the server's lifetime so it can auto-shutdown and
+  // save Render free-tier credits. This prevents 24/7 running from cron alone.
+  if (inMarketHours && typeof globalThis !== 'undefined') {
     (globalThis as Record<string, unknown>).__lastCronWake = now;
   }
-
-  const inMarketHours = isMarketHours(ist.mins, ist.weekday);
 
   const response: Record<string, unknown> = {
     ok: true,
@@ -61,7 +63,7 @@ export async function GET(req: Request) {
     response.note = 'Weekend. Server will auto-shutdown in ~10 min if no activity.';
   } else {
     response.action = 'market-hours';
-    response.note = 'Market hours. Keeping server alive.';
+    response.note = 'Market hours. Keeping server alive. Wake recorded.';
   }
 
   return NextResponse.json(response);
