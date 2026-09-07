@@ -17,9 +17,9 @@ function getIstTime(): { hh: number; mm: number; mins: number; weekday: boolean 
 
 function isMarketHours(mins: number, weekday: boolean): boolean {
   if (!weekday) return false;
-  // 07:00-10:20 IST (overnight AI + pre-market + morning scans)
+  // 07:00-10:30 IST (overnight AI + pre-market + morning scans)
   // 15:00-16:40 IST (resolution + post-market review)
-  return (mins >= 420 && mins <= 620) || (mins >= 900 && mins <= 1000);
+  return (mins >= 420 && mins <= 630) || (mins >= 900 && mins <= 1000);
 }
 
 export async function GET(req: Request) {

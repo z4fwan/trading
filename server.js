@@ -44,8 +44,8 @@ function getIstNow() {
 
 function isMarketWindow(mins, weekday) {
   if (!weekday) return false;
-  // 07:00-10:20 IST (overnight AI + pre-market + morning scans)
-  if (mins >= 420 && mins <= 620) return true;
+  // 07:00-10:30 IST (overnight AI + pre-market + morning scans)
+  if (mins >= 420 && mins <= 630) return true;
   // 15:00-16:40 IST (resolution + post-market review)
   if (mins >= 900 && mins <= 1000) return true;
   return false;
