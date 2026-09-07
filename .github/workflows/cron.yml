@@ -1,0 +1,16 @@
+name: Keep Server Alive
+
+on:
+  schedule:
+    - cron: '0/1 * * * 1-5'  # Every minute, Mon-Fri
+  workflow_dispatch:
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake Render Server
+        run: |
+          echo "Waking server at $(date -u) UTC / $(TZ=Asia/Kolkata date) IST"
+          curl -s -m 120 "https://trading-dashboard-awoe.onrender.com/api/cron/wake?token=AI4GOhgoGEivVEpGj9yeF7Ijtx9TqlEi" || echo "Server still starting..."
+          echo "Done"
