@@ -2,7 +2,10 @@ name: Keep Server Alive
 
 on:
   schedule:
-    - cron: '0/1 * * * 1-5'  # Every minute, Mon-Fri
+    # Morning: every 3 min, 07:00-10:20 IST (01:30-04:50 UTC)
+    - cron: '*/3 1-4 * * 1-5'
+    # Afternoon: every 3 min, 15:00-16:40 IST (09:30-11:10 UTC)
+    - cron: '*/3 9-11 * * 1-5'
   workflow_dispatch:
 
 jobs:
