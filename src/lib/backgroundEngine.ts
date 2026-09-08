@@ -21,6 +21,7 @@ import { getNewsForTicker, getNewsFeed, addNewsEvents } from './newsStore';
 import { runPreMarketAlphaCycle } from './preMarketEngine';
 import { runPreMarketMomentumScan, resolvePreMarketPredictions } from './preMarketMomentumEngine';
 import { runPostMarketReview } from './postMarketReview';
+import { runDailySummary } from './dailySummary';
 import { runAutonomousLearningCycle, hydrateServerKnowledgeFromCloud } from './serverAutonomousLearning';
 import { runMarketClosedAnalysis } from './weekendRetrospective';
 import { runStockPulseLearningCycle } from './serverStockPulseLearning';
@@ -707,6 +708,10 @@ export async function startBackgroundEngine(): Promise<void> {
       // 16:05 fallback: re-run post-market review if 16:00 attempt failed
       // (sent guard is only set after successful delivery, so this is safe).
       void runPostMarketReview().catch(e => warn(`Post-market review retry error: ${e}`));
+    } else if (hh === 16 && mm === 10) {
+      // 16:10 daily summary email (per-day idempotent — fires once even if the
+      // 16:00 post-market review retried). RunDailySummary has its own guard.
+      void runDailySummary().catch(e => warn(`Daily summary error: ${e}`));
     } else if (hh === 16 && mm === 15) {
       // 16:15 final fallback: last attempt before the post-market window closes
       void runPostMarketReview().catch(e => warn(`Post-market review final attempt error: ${e}`));
@@ -767,6 +772,23 @@ export async function startBackgroundEngine(): Promise<void> {
       warn(`Post-market catch-up error: ${e}`);
     }
   }, 20000);
+
+  // Startup catch-up for the daily summary email: if the server boots at or
+  // after 16:10 IST on a weekday, send it once. runDailySummary is idempotent
+  // (per-day sent guard), so a double call is harmless.
+  setTimeout(() => {
+    const now = new Date();
+    const istTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
+    const [hh, mm] = istTime.split(':').map(Number);
+    const mins = hh * 60 + mm;
+    try {
+      if (mins >= 16 * 60 + 10) {
+        void runDailySummary().catch(e => warn(`Daily summary catch-up error: ${e}`));
+      }
+    } catch (e) {
+      warn(`Daily summary catch-up error: ${e}`);
+    }
+  }, 30000);
 
   // Startup catch-up for long-term stock study: if the server boots at or
   // after 16:20 IST on a weekday (Mon-Fri), run the study/pick once.

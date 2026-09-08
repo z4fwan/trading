@@ -21,7 +21,7 @@ import { fetchLivePreOpenData, type PreOpenData } from './nsePreOpenFetcher';
 import { getAllCachedQuotes, getLivePrice } from './quoteFetcher';
 import { getDynamicIndianUniverse } from './dynamicUniverse';
 import { tickerToYahoo, getTickerName, normalizeTicker } from './marketConfig';
-import { sendPreMarketMomentumReport } from './telegramBot';
+import { sendPreMarketMomentumReport, sendTelegramMessage } from './telegramBot';
 
 export type MomentumWindow = 'PRE_OPEN' | 'POST_OPEN' | 'RE_SCAN';
 export type PredictionStatus = 'PENDING' | 'HIT_TARGET' | 'STOPPED_OUT' | 'DIRECTION_OK' | 'DIRECTION_WRONG';
@@ -96,6 +96,30 @@ function persist(): void {
   try {
     fs.writeFileSync(STORE_PATH, JSON.stringify({ predictions, lastScanDate }, null, 2), 'utf-8');
   } catch { /* silent */ }
+}
+
+const WINDOW_LABELS: Record<Exclude<MomentumWindow, 'RE_SCAN'>, string> = {
+  PRE_OPEN: 'Pre-open order book',
+  POST_OPEN: 'Open confirmation',
+};
+
+let emptyNoticeSent = '';
+
+async function notifyEmptyMomentumReport(window: 'PRE_OPEN' | 'POST_OPEN'): Promise<void> {
+  const today = todayStr(new Date());
+  const todayKey = `${today}:${window}`;
+  if (emptyNoticeSent === todayKey) return;
+  emptyNoticeSent = todayKey;
+  try {
+    await sendTelegramMessage(
+      `📭 *NO ${WINDOW_LABELS[window].toUpperCase()}* — 0 qualifying momentum picks\n` +
+      `The market simply has no gap-and-go setup clearing the score gate right now. ` +
+      `Next scan: ${window === 'PRE_OPEN' ? '9:12 open confirmation' : '9:30 late-breakout rescan'} IST.`
+    );
+    console.log(`[PreMarketMomentum] ${window}: sent 0-pick notice`);
+  } catch (e) {
+    console.warn(`[PreMarketMomentum] 0-pick notice failed:`, e);
+  }
 }
 
 export function getPreMarketPredictions(): MomentumPrediction[] {
@@ -284,6 +308,11 @@ export async function runPreMarketMomentumScan(window: MomentumWindow, opts?: { 
 
   if (picks.length === 0) {
     console.log(`[PreMarketMomentum] ${window} yielded 0 qualifying momentum picks.`);
+    // PRE_OPEN and POST_OPEN are scheduled headline reports the user expects
+    // every trading morning — a zero-pick day must be visible, not silent.
+    if (window === 'PRE_OPEN' || window === 'POST_OPEN') {
+      await notifyEmptyMomentumReport(window);
+    }
     return [];
   }
 
