@@ -435,10 +435,19 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
   if (!getState().warmBootDone) {
     await warmBootSnapshot(market);
   }
+
+  // NSE fully closed (weekend / before 09:00 pre-open / after close)? Prices are
+  // frozen — defer the heavy Yahoo tiers (which storm 429s) and let the cached
+  // snapshot serve. Only seed a missing snapshot so a cold boot still has data.
+  const nseSession = market?.nse?.session || 'UNKNOWN';
+  const nseClosed = nseSession === 'CLOSED';
+
   // Never block request path on full snapshot; run in background.
   if (!getState().fullSnapshotPromise) {
     const indianCached = INDIAN_SYMBOLS.filter(s => getState().cache.stocks[s]?.price && getState().cache.stocks[s].price > 0).length;
-    const needFull = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE
+    const needSeed = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE;
+    const needRefresh = nseClosed && Date.now() - getState().fullSnapshotAt > FULL_SNAPSHOT_INTERVAL * 6;
+    const needFull = needSeed || needRefresh
       || Date.now() - getState().fullSnapshotAt > FULL_SNAPSHOT_INTERVAL;
     if (needFull) {
       getState().fullSnapshotPromise = ensureFullSnapshot(market)
@@ -449,36 +458,42 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
     }
   }
 
-  // Tier 1: Always fetch
-  const batch: string[] = [...INDIAN_SYMBOLS.slice(0, 20), ...INDEX_TICKERS_ARRAY];
+  if (nseClosed) {
+    // Market shut — serve cached snapshot only; TradingView scan still cheaply
+    // refreshes frozen closes. Skip the Yahoo quote tiers entirely.
+    void fetchTradingViewIndia(market).catch(() => {});
+  } else {
+    // Tier 1: Always fetch
+    const batch: string[] = [...INDIAN_SYMBOLS.slice(0, 20), ...INDEX_TICKERS_ARRAY];
 
-  // Tier 2: Top Indian
-  getState().tier2Cycle = (getState().tier2Cycle + 1) % 2;
-  if (getState().tier2Cycle === 0) {
-    for (const sym of INDIAN_SYMBOLS.slice(20, 100)) {
+    // Tier 2: Top Indian
+    getState().tier2Cycle = (getState().tier2Cycle + 1) % 2;
+    if (getState().tier2Cycle === 0) {
+      for (const sym of INDIAN_SYMBOLS.slice(20, 100)) {
+        if (!batch.includes(sym)) batch.push(sym);
+      }
+    }
+
+    // Tier 3: Rotating pool of remaining tickers — fills remaining capacity
+    const poolLen = Math.max(1, getState().ROTATE_POOL.length);
+    const tier3Budget = Math.max(0, ROTATE_BATCH * 2 - batch.length);
+    for (let i = 0; batch.length < ROTATE_BATCH * 2 && i < tier3Budget; i++) {
+      const sym = getState().ROTATE_POOL[(getState().rotateOffset + i) % poolLen];
       if (!batch.includes(sym)) batch.push(sym);
     }
-  }
+    getState().rotateOffset = (getState().rotateOffset + tier3Budget) % poolLen;
 
-  // Tier 3: Rotating pool of remaining tickers — fills remaining capacity
-  const poolLen = Math.max(1, getState().ROTATE_POOL.length);
-  const tier3Budget = Math.max(0, ROTATE_BATCH * 2 - batch.length);
-  for (let i = 0; batch.length < ROTATE_BATCH * 2 && i < tier3Budget; i++) {
-    const sym = getState().ROTATE_POOL[(getState().rotateOffset + i) % poolLen];
-    if (!batch.includes(sym)) batch.push(sym);
-  }
-  getState().rotateOffset = (getState().rotateOffset + tier3Budget) % poolLen;
-
-  if (batch.length > 0) {
-    try {
-      // Allow Indian symbols in the active batch to be fetched via Yahoo Finance for real-time prices
-      await Promise.all([
-        fetchSymbolBatch(batch, market),
-        fetchTradingViewIndia(market)
-      ]);
-    } catch (e) {
-      if (!isYahooRateLimitError(e)) throw e;
-      // Rate-limited: skip this rotate tick; cache still serves last good prices.
+    if (batch.length > 0) {
+      try {
+        // Allow Indian symbols in the active batch to be fetched via Yahoo Finance for real-time prices
+        await Promise.all([
+          fetchSymbolBatch(batch, market),
+          fetchTradingViewIndia(market)
+        ]);
+      } catch (e) {
+        if (!isYahooRateLimitError(e)) throw e;
+        // Rate-limited: skip this rotate tick; cache still serves last good prices.
+      }
     }
   }
 
