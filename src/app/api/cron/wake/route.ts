@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { markWake } from '@/lib/engineState';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -25,6 +26,7 @@ function isMarketHours(mins: number, weekday: boolean): boolean {
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token');
+  const source = searchParams.get('source') || 'unknown';
 
   if (CRON_SECRET && token !== CRON_SECRET) {
     return NextResponse.json({ ok: false, error: 'Invalid token' }, { status: 401 });
@@ -33,6 +35,7 @@ export async function GET(req: Request) {
   const ist = getIstTime();
   const now = Date.now();
   const inMarketHours = isMarketHours(ist.mins, ist.weekday);
+  markWake(source);
 
   // Only record the wake during market hours — outside market hours the cron
   // ping should NOT extend the server's lifetime so it can auto-shutdown and
@@ -48,6 +51,7 @@ export async function GET(req: Request) {
     weekday: ist.weekday,
     marketHours: inMarketHours,
     uptime: Math.round(process.uptime()),
+    source,
   };
 
   if (!inMarketHours && ist.weekday) {

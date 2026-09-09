@@ -6,6 +6,11 @@ on:
     - cron: '*/5 1-4 * * 1-5'
     # Afternoon: every 5 min, 15:00-16:40 IST (09:30-11:10 UTC)
     - cron: '*/5 9-11 * * 1-5'
+    # Safety: fewer pings covering broader shoulders of both windows
+    # 06:00-06:55 IST warm start (00:30-01:25 UTC)
+    - cron: '*/10 0-1 * * 1-5'
+    # 14:30-14:55 IST pre-evening spin-up (09:00-09:25 UTC)
+    - cron: '*/10 9 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -15,5 +20,5 @@ jobs:
       - name: Wake Render Server
         run: |
           echo "Waking server at $(date -u) UTC / $(TZ=Asia/Kolkata date) IST"
-          curl -s -m 120 "https://trading-dashboard-awoe.onrender.com/api/cron/wake?token=AI4GOhgoGEivVEpGj9yeF7Ijtx9TqlEi" || echo "Server still starting..."
+          curl -s -m 120 "https://trading-dashboard-awoe.onrender.com/api/cron/wake?token=AI4GOhgoGEivVEpGj9yeF7Ijtx9TqlEi&source=github" || echo "Server still starting..."
           echo "Done"

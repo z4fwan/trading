@@ -80,6 +80,12 @@ export interface EngineHealth {
   marketOfflinePlaybook: string | null;
   lastMarketOfflineAnalysis: number;
 
+  wakeCount: number;
+  lastWakeAt: number;
+  lastWakeSource: string;
+
+  liveQuantSignals: unknown[];
+
   lastSocialSentimentCycle: number;
   socialSentimentTickers: number;
   socialSentimentTrending: number;
@@ -155,6 +161,8 @@ function getState(): EngineHealth {
     marketOfflinePlaybook: null,
     lastMarketOfflineAnalysis: 0,
 
+    wakeCount: 0, lastWakeAt: 0, lastWakeSource: '',
+
     lastSocialSentimentCycle: 0, socialSentimentTickers: 0, socialSentimentTrending: 0, socialSentimentResult: '',
     lastSECCycle: 0, secFilingsCount: 0, lastEarningsCycle: 0, earningsUpcoming: 0, lastEconCalendarCycle: 0, econEventsImminent: 0,
     lastCoinGeckoCycle: 0, cryptoMarketCap: 0, cryptoBTCDominance: 0, lastOptionsFlowCycle: 0, optionsFlowTickers: 0, optionsFlowAlerts: 0,
@@ -183,6 +191,7 @@ export function markEngineStopped(signal?: string) {
   if (signal) state.lastShutdownSignal = signal;
 }
 export function markQuote(payload?: string) { const s = getState(); s.lastQuote = Date.now(); if (payload) s.quotesPayload = payload; s.cycleCounters.quotes++; }
+export function markWake(source: string) { const s = getState(); s.wakeCount++; s.lastWakeAt = Date.now(); s.lastWakeSource = source; }
 export function markMLCycle(trained: number, stored: number) {
   const s = getState();
   s.lastMLCycle = Date.now();
