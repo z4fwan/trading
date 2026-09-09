@@ -19,7 +19,7 @@ import { fetchClassifiedNews } from './newsFetcher';
 import { processNewsPipeline } from './llmNewsPipeline';
 import { getNewsForTicker, getNewsFeed, addNewsEvents } from './newsStore';
 import { runPreMarketAlphaCycle } from './preMarketEngine';
-import { runPreMarketMomentumScan, resolvePreMarketPredictions } from './preMarketMomentumEngine';
+import { runPreMarketMomentumScan, resolvePreMarketPredictions, restorePreMarketState } from './preMarketMomentumEngine';
 import { runPostMarketReview } from './postMarketReview';
 import { runDailySummary } from './dailySummary';
 import { runAutonomousLearningCycle, hydrateServerKnowledgeFromCloud } from './serverAutonomousLearning';
@@ -563,6 +563,9 @@ export async function startBackgroundEngine(): Promise<void> {
   startTelegramBotListener();
   startupDiagnostics();
   markEngineRunning();
+  // Restore premarket picks/cache from Supabase before any scans or EOD resolve
+  // run, so a free-tier restart never loses the morning's picks.
+  void restorePreMarketState().catch(e => warn(`Pre-market state restore error: ${e}`));
   // Immediately surface persisted intraday calls/plan so the dashboard tab is
   // populated before the first scan completes (calls are re-marked each cycle).
   markIntradayCalls(getIntradayCalls(), getIntradayPlan());

@@ -22,6 +22,7 @@ import { getAllCachedQuotes, getLivePrice } from './quoteFetcher';
 import { getDynamicIndianUniverse } from './dynamicUniverse';
 import { tickerToYahoo, getTickerName, normalizeTicker } from './marketConfig';
 import { sendPreMarketMomentumReport, sendTelegramMessage } from './telegramBot';
+import { getServiceClient } from './supabase';
 
 export type MomentumWindow = 'PRE_OPEN' | 'POST_OPEN' | 'RE_SCAN';
 export type PredictionStatus = 'PENDING' | 'HIT_TARGET' | 'STOPPED_OUT' | 'DIRECTION_OK' | 'DIRECTION_WRONG';
@@ -68,6 +69,7 @@ interface AccuracyStats {
 }
 
 const STORE_PATH = path.join(process.cwd(), '.premarket-predictions.json');
+const SUPABASE_STORE_KEY = 'premarket_state';
 const MAX_PICKS = 10;
 const MIN_PRICE = 20;
 const MIN_GAP_PCT = 0.5;
@@ -96,6 +98,44 @@ function persist(): void {
   try {
     fs.writeFileSync(STORE_PATH, JSON.stringify({ predictions, lastScanDate }, null, 2), 'utf-8');
   } catch { /* silent */ }
+  // Mirror to Supabase so picks survive Render free-tier sleep/restart and can
+  // still be resolved at end of day. Fire-and-forget; never block the scan.
+  const svc = getServiceClient();
+  if (svc) {
+    void svc.from('system_config')
+      .upsert({
+        key_name: SUPABASE_STORE_KEY,
+        key_value: JSON.stringify({ predictions, lastScanDate }),
+        updated_at: Date.now(),
+      } as any)
+      .then(({ error }) => {
+        if (error) console.warn(`[PreMarketMomentum] supabase persist error: ${error.message}`);
+      })
+      .catch(() => { /* ignore */ });
+  }
+}
+
+/** Restore persisted picks from Supabase (called once at engine startup). */
+export async function restorePreMarketState(): Promise<void> {
+  if (predictions.length > 0) return; // local state already loaded
+  const svc = getServiceClient();
+  if (!svc) return;
+  try {
+    const { data, error } = await svc.from('system_config')
+      .select('key_value')
+      .eq('key_name', SUPABASE_STORE_KEY)
+      .maybeSingle();
+    if (error || !data?.key_value) return;
+    const parsed = JSON.parse(data.key_value as string) as Partial<PersistedData>;
+    if (Array.isArray(parsed.predictions) && parsed.predictions.length > 0) {
+      predictions.push(...(parsed.predictions as MomentumPrediction[]));
+      if (parsed.lastScanDate) lastScanDate = parsed.lastScanDate;
+      persist(); // write back to local disk as a cache
+      console.log(`[PreMarketMomentum] restored ${parsed.predictions.length} pick(s) from Supabase`);
+    }
+  } catch {
+    /* ignore restore errors — local disk state still works */
+  }
 }
 
 const WINDOW_LABELS: Record<Exclude<MomentumWindow, 'RE_SCAN'>, string> = {
