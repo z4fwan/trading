@@ -37,6 +37,9 @@ export async function GET() {
   const now = Date.now();
   let engine = getEngineState();
 
+  // Keep wake telemetry from the main process (the child payload would reset it to 0).
+  const localWake = { count: engine.wakeCount, at: engine.lastWakeAt, source: engine.lastWakeSource };
+
   // When running under server.js (CUSTOM_SERVER), the worker runs in a child process.
   // Its state is streamed via IPC into global.__enginePayload as a JSON string.
   // Merge that into the local state so the API reflects the real engine.
@@ -46,6 +49,9 @@ export async function GET() {
       try {
         const parsed = JSON.parse(remote);
         engine = { ...engine, ...parsed } as typeof engine;
+        engine.wakeCount = localWake.count;
+        engine.lastWakeAt = localWake.at;
+        engine.lastWakeSource = localWake.source;
       } catch { /* ignore parse errors */ }
     }
   }
@@ -92,6 +98,11 @@ export async function GET() {
       memoryMB: engine.memoryMB,
       activeFetches: engine.activeFetches,
       lastMemoryCheck: engine.lastMemoryCheck ? `${Math.round((now - engine.lastMemoryCheck) / 1000)}s ago` : 'never',
+      wake: {
+        count: engine.wakeCount,
+        lastAt: engine.lastWakeAt ? new Date(engine.lastWakeAt).toISOString() : null,
+        lastSource: engine.lastWakeSource || null,
+      },
       recentErrors: engine.errors.slice(-5),
       quotes: {
         pricedStocks: quotes.pricedStocks,
