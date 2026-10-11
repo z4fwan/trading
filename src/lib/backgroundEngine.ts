@@ -764,6 +764,26 @@ export async function startBackgroundEngine(): Promise<void> {
     }
   }, 8000);
 
+  // Startup catch-up for the momentum EOD resolve: if the server was asleep at
+  // the 15:45 IST resolve (common on the free tier) and boots later on a
+  // weekday, resolve any still-PENDING picks now so the day's results are never
+  // lost. resolvePreMarketPredictions only touches PENDING picks, so it is safe
+  // to call repeatedly.
+  setTimeout(() => {
+    const now = new Date();
+    const istTime = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false });
+    const [hh, mm] = istTime.split(':').map(Number);
+    const mins = hh * 60 + mm;
+    const dayOfWeek = now.getDay();
+    try {
+      if (mins >= 15 * 60 + 45 && dayOfWeek >= 1 && dayOfWeek <= 5) {
+        void resolvePreMarketPredictions().catch(e => warn(`Pre-market resolve catch-up error: ${e}`));
+      }
+    } catch (e) {
+      warn(`Pre-market resolve catch-up error: ${e}`);
+    }
+  }, 12000);
+
   // Startup catch-up for the post-market review: if the server boots at or
   // after 16:00 IST on a weekday, run the review once. runPostMarketReview is
   // idempotent (per-day sent guard), so a double call is harmless.
