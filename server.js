@@ -24,6 +24,7 @@ process.on('unhandledRejection', (reason, promise) => {
 
 global.__quotesPayload = '';
 global.__enginePayload = '';
+global.__premarketPayload = '';
 global.__wsClients = new Set();
 global.__lastCronWake = 0;
 global.__lastHttpRequest = Date.now();
@@ -131,6 +132,24 @@ app.prepare().then(() => {
         res.setHeader('Content-Type', 'application/json');
         return res.end(JSON.stringify({ success: true, message: 'Force scan dispatched via IPC' }));
       }
+
+      // Manual pre-market scan/resolve trigger: must run in the worker process
+      // where the picks + EOD resolver live, not in this API process.
+      if (parsedUrl.pathname === '/api/premarket/trigger') {
+        if (global.__worker) {
+          global.__worker.send({
+            type: 'FORCE_PREMARKET',
+            action: parsedUrl.query.action,
+            window: parsedUrl.query.window,
+          });
+          res.statusCode = 200;
+          res.setHeader('Content-Type', 'application/json');
+          return res.end(JSON.stringify({ success: true, message: 'Pre-market command dispatched via IPC' }));
+        }
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        return res.end(JSON.stringify({ success: false, message: 'Engine worker not running' }));
+      }
       
       await handle(req, res, parsedUrl);
     } catch (err) {
@@ -203,6 +222,8 @@ app.prepare().then(() => {
           } else if (msg && msg.type === 'ENGINE_PAYLOAD') {
             global.__enginePayload = msg.data;
             wsBroadcastEngine();
+          } else if (msg && msg.type === 'PREMARKET_PAYLOAD') {
+            global.__premarketPayload = msg.data;
           } else if (msg && msg.type === 'ALERT_PAYLOAD') {
             let parsed;
             try { parsed = JSON.parse(msg.data); } catch { parsed = msg.data; }

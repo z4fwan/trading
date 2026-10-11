@@ -17,7 +17,7 @@
 
 import fs from 'fs';
 import path from 'path';
-import { fetchLivePreOpenData, type PreOpenData } from './nsePreOpenFetcher';
+import { fetchLivePreOpenDataResult } from './nsePreOpenFetcher';
 import { getAllCachedQuotes, getLivePrice } from './quoteFetcher';
 import { getDynamicIndianUniverse } from './dynamicUniverse';
 import { tickerToYahoo, getTickerName, normalizeTicker } from './marketConfig';
@@ -144,6 +144,7 @@ const WINDOW_LABELS: Record<Exclude<MomentumWindow, 'RE_SCAN'>, string> = {
 };
 
 let emptyNoticeSent = '';
+let scanInProgress = false;
 
 async function notifyEmptyMomentumReport(window: 'PRE_OPEN' | 'POST_OPEN'): Promise<void> {
   const today = todayStr(new Date());
@@ -226,17 +227,20 @@ function scoreLiquidity(price: number, volume: number): { points: number; label:
  * Pre-open pass: rank the NSE pre-open auction order book. The auction shows
  * where the market intends to open (gap) and whether buyers outnumber sellers.
  */
-async function scanPreOpen(now: Date): Promise<MomentumPick[]> {
-  const preOpen: PreOpenData[] = await fetchLivePreOpenData();
-  if (preOpen.length === 0) {
-    console.log('[PreMarketMomentum] Pre-open auction data unavailable (outside 9:00-9:08 window or NSE block).');
-    return [];
+async function scanPreOpen(now: Date): Promise<{ picks: MomentumPick[]; dataAvailable: boolean }> {
+  const preOpen = await fetchLivePreOpenDataResult();
+  if (!preOpen.reachable) {
+    console.log('[PreMarketMomentum] Pre-open auction data unreachable (outside 9:00-9:15 window, NSE block, or WAF). Will retry.');
+    return { picks: [], dataAvailable: false };
+  }
+  if (preOpen.data.length === 0) {
+    console.log('[PreMarketMomentum] Pre-open auction returned an empty book.');
   }
 
   const universe = new Set(getDynamicIndianUniverse());
   const picks: MomentumPick[] = [];
 
-  for (const item of preOpen) {
+  for (const item of preOpen.data) {
     const ticker = normalizeTicker(item.symbol);
     if (!universe.has(ticker)) continue;
     const price = item.finalPrice;
@@ -266,7 +270,7 @@ async function scanPreOpen(now: Date): Promise<MomentumPick[]> {
     });
   }
 
-  return picks.sort((a, b) => b.score - a.score).slice(0, MAX_PICKS);
+  return { picks: picks.sort((a, b) => b.score - a.score).slice(0, MAX_PICKS), dataAvailable: true };
 }
 
 /**
@@ -274,7 +278,7 @@ async function scanPreOpen(now: Date): Promise<MomentumPick[]> {
  * fades in the first minutes is not a momentum pick — the stock must still be
  * trading above its open. Also avoids chasing huge gaps (mean-reversion risk).
  */
-async function scanPostOpen(now: Date, window: MomentumWindow): Promise<MomentumPick[]> {
+async function scanPostOpen(now: Date, window: MomentumWindow): Promise<{ picks: MomentumPick[]; dataAvailable: boolean }> {
   const quotes = getAllCachedQuotes();
   const today = todayStr(now);
   const already = new Set(predictions.filter(p => p.date === today).map(p => p.ticker));
@@ -323,7 +327,7 @@ async function scanPostOpen(now: Date, window: MomentumWindow): Promise<Momentum
     });
   }
 
-  return picks.sort((a, b) => b.score - a.score).slice(0, MAX_PICKS);
+  return { picks: picks.sort((a, b) => b.score - a.score).slice(0, MAX_PICKS), dataAvailable: true };
 }
 
 // ─── Main entry ──────────────────────────────────────────────────────────────
@@ -335,16 +339,29 @@ export async function runPreMarketMomentumScan(window: MomentumWindow, opts?: { 
   // One scan per window per day (silent/dry runs still consume the slot).
   const windowKey = `${today}:${window}`;
   if (lastScanDate === windowKey) return [];
-  lastScanDate = windowKey;
-  persist();
+  if (scanInProgress) return [];
+  scanInProgress = true;
 
-  let picks: MomentumPick[] = [];
+  let result: { picks: MomentumPick[]; dataAvailable: boolean };
   try {
-    picks = window === 'PRE_OPEN' ? await scanPreOpen(now) : await scanPostOpen(now, window);
+    result = window === 'PRE_OPEN' ? await scanPreOpen(now) : await scanPostOpen(now, window);
   } catch (e) {
     console.error(`[PreMarketMomentum] ${window} scan failed:`, e);
+    scanInProgress = false;
     return [];
   }
+  scanInProgress = false;
+
+  // Data unavailable (NSE blocked / off-hours): do NOT consume the slot so the
+  // next scheduled minutes retry instead of silently ending the day.
+  if (!result.dataAvailable) {
+    console.log(`[PreMarketMomentum] ${window}: data unavailable — slot left open for retry.`);
+    return [];
+  }
+
+  const picks = result.picks;
+  lastScanDate = windowKey;
+  persist();
 
   if (picks.length === 0) {
     console.log(`[PreMarketMomentum] ${window} yielded 0 qualifying momentum picks.`);

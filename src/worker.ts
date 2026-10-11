@@ -16,6 +16,7 @@ startBackgroundEngine();
 import { runAutoIntradayScan } from './lib/autoIntradayScanner';
 import { getIntradayCalls, getIntradayPlan } from './lib/intradayStore';
 import { markIntradayCalls } from './lib/engineState';
+import { getPreMarketPredictions, getPreMarketStats, runPreMarketMomentumScan, resolvePreMarketPredictions } from './lib/preMarketMomentumEngine';
 
 let lastPayload = '';
 
@@ -30,6 +31,20 @@ process.on('message', async (msg: any) => {
       console.log('[Worker] Force scan complete. Broadcast updated state.');
     } catch (e) {
       console.error('[Worker] Force scan failed:', e);
+    }
+  } else if (msg && msg.type === 'FORCE_PREMARKET') {
+    // Manual trigger from the dashboard: run the scan in THIS process so the
+    // picks land where the engine (and the EOD resolver) actually lives.
+    try {
+      if (msg.action === 'resolve') {
+        await resolvePreMarketPredictions();
+      } else {
+        const window = msg.window === 'PRE_OPEN' || msg.window === 'RE_SCAN' ? msg.window : 'POST_OPEN';
+        await runPreMarketMomentumScan(window);
+      }
+      pushPreMarketPayload(true);
+    } catch (e) {
+      console.error('[Worker] Force premarket failed:', e);
     }
   }
 });
@@ -63,3 +78,20 @@ setInterval(() => {
         }
     }
 }, 2000);
+
+// Stream pre-market momentum predictions + stats to the parent so the dashboard
+// API can surface picks even though the engine runs in this separate process.
+let lastPreMarketPayloadStr = '';
+function pushPreMarketPayload(force = false) {
+    const payloadStr = JSON.stringify({
+        stats: getPreMarketStats(),
+        predictions: getPreMarketPredictions().slice(-50),
+    });
+    if (!force && payloadStr === lastPreMarketPayloadStr) return;
+    lastPreMarketPayloadStr = payloadStr;
+    if (process.send) {
+        process.send({ type: 'PREMARKET_PAYLOAD', data: payloadStr });
+    }
+}
+setInterval(() => pushPreMarketPayload(), 3000);
+pushPreMarketPayload(true);

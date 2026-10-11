@@ -690,15 +690,20 @@ export async function startBackgroundEngine(): Promise<void> {
     
     if (hh === 8 && mm === 0) {
       void runPreMarketAlphaCycle(false); // 8:00 AM Overnight Scan
-    } else if (hh === 9 && mm === 0) {
-      void runPreMarketMomentumScan('PRE_OPEN'); // 9:00 pre-open auction picks
-    } else if (hh === 9 && mm === 7) {
-      void runPreMarketAlphaCycle(true);  // 9:07 AM Pre-Open Scan
-    } else if (hh === 9 && mm === 12) {
-      void runPreMarketMomentumScan('POST_OPEN'); // 9:12 open-confirmation picks
+    } else if (hh === 9 && mm >= 7 && mm <= 11) {
+      // PRE-OPEN momentum: 9:07-9:11 IST (NSE order entry closes 9:08, the
+      // auction book is mature). Multiple minutes give automatic retries if the
+      // NSE pre-open endpoint is briefly blocked; the scan is idempotent.
+      void runPreMarketMomentumScan('PRE_OPEN');
+      if (mm === 7) void runPreMarketAlphaCycle(true); // 9:07 AM Pre-Open Scan
+    } else if (hh === 9 && mm >= 18 && mm <= 27) {
+      // OPEN CONFIRMATION: 9:18-9:27 IST. The regular session opens at 9:15,
+      // so live quotes only have TODAY's open from ~9:16 onward — scanning at
+      // 9:12 (old behaviour) read yesterday's candles and produced no picks.
+      void runPreMarketMomentumScan('POST_OPEN');
     } else if ((hh === 9 && (mm === 30 || mm === 45)) || (hh === 10 && mm === 0)) {
-      // Late-breakout rescans: stocks that moved after the 9:12 cutoff (the
-      // 9:15–10:00 gap runners) get a second chance to be caught.
+      // Late-breakout rescans: stocks that moved after the open (the 9:15–10:00
+      // gap runners) get a second chance to be caught.
       void runPreMarketMomentumScan('RE_SCAN');
     } else if (hh === 15 && mm === 45) {
       void resolvePreMarketPredictions().catch(e => warn(`Pre-market resolve error: ${e}`)); // 15:45 resolve day's picks for the ledger
@@ -747,9 +752,9 @@ export async function startBackgroundEngine(): Promise<void> {
     const [hh, mm] = istTime.split(':').map(Number);
     const mins = hh * 60 + mm;
     try {
-      if (mins >= 9 * 60 && mins < 9 * 60 + 12) {
+      if (mins >= 9 * 60 + 7 && mins < 9 * 60 + 18) {
         void runPreMarketMomentumScan('PRE_OPEN');
-      } else if (mins >= 9 * 60 + 12 && mins <= 9 * 60 + 40) {
+      } else if (mins >= 9 * 60 + 18 && mins <= 9 * 60 + 45) {
         void runPreMarketMomentumScan('POST_OPEN');
       } else if (mins >= 9 * 60 + 30 && mins <= 10 * 60 + 5) {
         void runPreMarketMomentumScan('RE_SCAN');
