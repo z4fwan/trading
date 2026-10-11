@@ -55,20 +55,22 @@ export async function POST(request: Request) {
   // would write to the API process's memory and be invisible everywhere else,
   // so dispatch the command over IPC and report the streamed result instead.
   const worker = (globalThis as Record<string, any>).__worker;
-  const ownOrigin = new URL(request.url).origin;
-  if (worker && process.env.CUSTOM_SERVER === 'true') {
+  if (worker && typeof worker.send === 'function' && process.env.CUSTOM_SERVER === 'true') {
     try {
-      await fetch(`${ownOrigin}/api/premarket/trigger?action=${encodeURIComponent(body.action ?? 'scan')}&window=${encodeURIComponent(body.window ?? 'POST_OPEN')}`, {
-        method: 'GET',
-        cache: 'no-store',
+      worker.send({
+        type: 'FORCE_PREMARKET',
+        action: body.action ?? 'scan',
+        window: body.window ?? 'POST_OPEN',
       });
-      // Give the worker a moment, then return its streamed state.
-      await new Promise((r) => setTimeout(r, 1500));
+      // Give the worker a moment to run, then return its streamed state.
+      await new Promise((r) => setTimeout(r, 2000));
       const shared = readSharedState();
-      if (shared) {
-        return NextResponse.json({ dispatched: true, window: body.window ?? 'POST_OPEN', stats: shared.stats, predictions: shared.predictions.slice(-10) });
-      }
-      return NextResponse.json({ dispatched: true, window: body.window ?? 'POST_OPEN' });
+      return NextResponse.json({
+        dispatched: true,
+        window: body.window ?? 'POST_OPEN',
+        stats: shared?.stats,
+        predictions: shared?.predictions.slice(-10) ?? [],
+      });
     } catch { /* fall through to local execution */ }
   }
 
