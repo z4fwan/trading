@@ -22,10 +22,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Database service client not configured' }, { status: 500 });
     }
 
+    // The live `system_config` table has no `updated_at` column (schema drift),
+    // so write only the two columns it actually has.
     const { error } = await svc.from('system_config').upsert({
       key_name,
       key_value,
-      updated_at: Date.now(),
     } as any);
 
     if (error) {

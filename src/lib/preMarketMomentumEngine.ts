@@ -100,13 +100,14 @@ function persist(): void {
   } catch { /* silent */ }
   // Mirror to Supabase so picks survive Render free-tier sleep/restart and can
   // still be resolved at end of day. Fire-and-forget; never block the scan.
+  // NOTE: the live `system_config` table has no `updated_at` column (schema
+  // drift from supabase-migration.sql), so we only write key_name/key_value.
   const svc = getServiceClient();
   if (svc) {
     void svc.from('system_config')
       .upsert({
         key_name: SUPABASE_STORE_KEY,
         key_value: JSON.stringify({ predictions, lastScanDate }),
-        updated_at: Date.now(),
       } as any)
       .then(({ error }) => {
         if (error) console.warn(`[PreMarketMomentum] supabase persist error: ${error.message}`);
