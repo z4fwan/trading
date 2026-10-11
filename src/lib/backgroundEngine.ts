@@ -782,7 +782,7 @@ export async function startBackgroundEngine(): Promise<void> {
     } catch (e) {
       warn(`Pre-market resolve catch-up error: ${e}`);
     }
-  }, 12000);
+  }, 90000);
 
   // Startup catch-up for the post-market review: if the server boots at or
   // after 16:00 IST on a weekday, run the review once. runPostMarketReview is
