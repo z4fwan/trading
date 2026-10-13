@@ -51,5 +51,15 @@ export async function GET() {
     results.yahooFinance2 = { ok: false, error: String(e).slice(0, 400), name: e?.name };
   }
 
+  // 5) NSE — used by the pre-open momentum scan
+  results.nseHome = await testFetch('https://www.nseindia.com/', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' },
+    signal: AbortSignal.timeout(8000),
+  });
+  results.nsePreOpenApi = await testFetch('https://www.nseindia.com/api/market-data-pre-open?key=ALL', {
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+    signal: AbortSignal.timeout(8000),
+  });
+
   return NextResponse.json({ ts: new Date().toISOString(), env: { RENDER: process.env.RENDER ?? null, node: process.version }, results });
 }

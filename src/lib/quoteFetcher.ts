@@ -331,6 +331,82 @@ async function fetchSymbolBatch(symbols: string[], market: MarketSummary): Promi
   return merged;
 }
 
+/**
+ * Yahoo v8 chart API — the ONLY Yahoo quote endpoint that works from a Render
+ * datacenter IP (verified: chart = 200, v7 quote = 401, yahoo-finance2 = 429,
+ * TradingView scanner = 429). Fetches one symbol and returns a raw quote object
+ * shaped like the old v7 payload so `mapQuote` can consume it unchanged.
+ */
+const CHART_HOST = 'https://query1.finance.yahoo.com/v8/finance/chart/';
+const CHART_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
+function chartToRaw(sym: string, result: any): Record<string, unknown> {
+  const m = result?.meta || {};
+  const q = result?.indicators?.quote?.[0] || {};
+  const opens: (number | null)[] = Array.isArray(q.open) ? q.open : [];
+  const vols: (number | null)[] = Array.isArray(q.volume) ? q.volume : [];
+  const lastOpen = opens.length ? opens[opens.length - 1] : null;
+  const lastVol = vols.length ? vols[vols.length - 1] : null;
+  const prevClose = m.chartPreviousClose ?? m.previousClose ?? null;
+  const price = m.regularMarketPrice ?? null;
+  return {
+    symbol: sym,
+    regularMarketPrice: price,
+    regularMarketPreviousClose: prevClose,
+    regularMarketChange: m.regularMarketChangePercent != null && price != null && prevClose != null ? price - prevClose : undefined,
+    regularMarketChangePercent: m.regularMarketChangePercent,
+    regularMarketDayHigh: m.regularMarketDayHigh,
+    regularMarketDayLow: m.regularMarketDayLow,
+    regularMarketOpen: m.regularMarketOpen ?? lastOpen,
+    regularMarketVolume: m.regularMarketVolume ?? lastVol,
+    longName: m.longName,
+    shortName: m.shortName,
+    marketState: 'REGULAR',
+  };
+}
+
+async function fetchChartOne(sym: string, market: MarketSummary): Promise<boolean> {
+  if (Date.now() < getState().yahooRateLimitUntil) return false;
+  try {
+    const res = await fetch(`${CHART_HOST}${encodeURIComponent(sym)}?interval=1d&range=1d`, {
+      headers: { 'User-Agent': CHART_UA },
+      signal: AbortSignal.timeout(7000),
+      cache: 'no-store',
+    });
+    if (res.status === 429) {
+      getState().yahooRateLimitUntil = Date.now() + 10000;
+      console.warn('[quoteFetcher] Yahoo chart 429 — backing off 10s');
+      return false;
+    }
+    if (!res.ok) return false;
+    const j: any = await res.json();
+    const result = j?.chart?.result?.[0];
+    if (!result) return false;
+    const entry = mapQuote(chartToRaw(sym, result), market);
+    if (entry && shouldCommit(sym, entry, market)) commitEntry(sym, entry);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Fetch many symbols via the chart API with bounded concurrency. */
+async function fetchChartBatch(symbols: string[], market: MarketSummary, concurrency = 6): Promise<number> {
+  if (symbols.length === 0) return 0;
+  let merged = 0;
+  let idx = 0;
+  const workers = new Array(Math.min(concurrency, symbols.length)).fill(0).map(async () => {
+    while (idx < symbols.length) {
+      if (Date.now() < getState().yahooRateLimitUntil) return;
+      const sym = symbols[idx++];
+      const ok = await fetchChartOne(sym, market);
+      if (ok) merged++;
+    }
+  });
+  await Promise.all(workers);
+  return merged;
+}
+
 async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
   const indianCached = INDIAN_SYMBOLS.filter(s => getState().cache.stocks[s]?.price && getState().cache.stocks[s].price > 0).length;
   const needFull = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE
@@ -343,10 +419,9 @@ async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
     getActiveDynamicSymbols().filter(s => !INDIAN_SYMBOLS.includes(s)),
   ];
   for (const syms of batches) {
-    for (let i = 0; i < syms.length; i += YAHOO_QUOTE_CHUNK) {
-      await fetchSymbolBatch(syms.slice(i, i + YAHOO_QUOTE_CHUNK), market);
-      await new Promise(r => setTimeout(r, 100));
-    }
+    if (Date.now() < getState().yahooRateLimitUntil) break;
+    await fetchChartBatch(syms, market, 6);
+    await new Promise(r => setTimeout(r, 200));
   }
   getState().fullSnapshotAt = Date.now();
 }
@@ -354,8 +429,8 @@ async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
 async function warmBootSnapshot(market: MarketSummary): Promise<void> {
   if (getState().warmBootDone) return;
   getState().warmBootDone = true;
-  // Priority order: indices → crypto → forex → top US → top international
-  await fetchSymbolBatch(INDIAN_SYMBOLS.slice(0, 50), market);
+  // Priority order: indices → core Indian names (chart API; reliable on Render).
+  await fetchChartBatch([...INDEX_TICKERS_ARRAY, ...INDIAN_SYMBOLS.slice(0, 60)], market, 6);
 }
 
 export async function fetchTradingViewIndia(market: MarketSummary) {
@@ -485,9 +560,10 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
 
     if (batch.length > 0) {
       try {
-        // Allow Indian symbols in the active batch to be fetched via Yahoo Finance for real-time prices
+        // Yahoo v8 chart API is the reliable server-side source on Render
+        // (v7 quote + yahoo-finance2 are rate-limited/401 from datacenter IPs).
         await Promise.all([
-          fetchSymbolBatch(batch, market),
+          fetchChartBatch(batch, market),
           fetchTradingViewIndia(market)
         ]);
       } catch (e) {
