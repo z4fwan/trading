@@ -59,23 +59,25 @@ class ModelArena:
         pkl_files = glob.glob(str(DATA_DIR / "*.pkl")) + glob.glob(str(MODELS_DIR / "*.pkl"))
         loaded = 0
         for pkl_path in pkl_files:
+            fname = Path(pkl_path).stem
             try:
-                fname = Path(pkl_path).stem
                 with open(pkl_path, 'rb') as f:
                     saved = pickle.load(f)
-                model = saved.get('model')
-                scaler = saved.get('scaler')
-                if model is not None:
-                    self.candidates[fname] = model
-                    loaded += 1
-                    # Keep per-candidate scalers so a shared self.scaler is never
-                    # silently overwritten by whichever pkl loaded last.
-                    if scaler is not None:
-                        self.candidate_scalers[fname] = scaler
-                        if self.scaler is None or len(self.candidate_scalers) == 1:
-                            self.scaler = scaler
-            except Exception:
-                continue
+                model = saved.get('model') if isinstance(saved, dict) else None
+                scaler = saved.get('scaler') if isinstance(saved, dict) else None
+                if model is None:
+                    print(f"[ML Arena] SKIP {pkl_path}: no 'model' key (format={type(saved).__name__})")
+                    continue
+                self.candidates[fname] = model
+                loaded += 1
+                # Keep per-candidate scalers so a shared self.scaler is never
+                # silently overwritten by whichever pkl loaded last.
+                if scaler is not None:
+                    self.candidate_scalers[fname] = scaler
+                    if self.scaler is None or len(self.candidate_scalers) == 1:
+                        self.scaler = scaler
+            except Exception as e:
+                print(f"[ML Arena] FAILED to load {pkl_path}: {type(e).__name__}: {e}")
         if loaded > 0:
             print(f"[ML Arena] Loaded {loaded} saved model(s) for live inference.")
 
