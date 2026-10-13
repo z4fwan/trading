@@ -291,16 +291,24 @@ async function scanPostOpen(now: Date, window: MomentumWindow): Promise<{ picks:
     if (!q || !q.price || q.price <= 0) continue;
     const prevClose = q.prevClose ?? 0;
     const open = q.open ?? 0;
-    if (!prevClose || !open || !isFinite(prevClose) || !isFinite(open)) continue;
+    if (!prevClose || !isFinite(prevClose)) continue;
 
     // RE_SCAN alerts must be actionable at send time: only include stocks with
     // a fresh live quote (cache rotates every ~2s, so anything older is stale).
     if (window === 'RE_SCAN' && Date.now() - (q.timestamp ?? 0) > 3 * 60 * 1000) continue;
 
-    const openGap = (open - prevClose) / prevClose * 100;
-    if (openGap < MIN_GAP_PCT || openGap >= 8) continue; // chase risk above 8%
+    // Gap vs the session open. When the quote came from the spark feed (no
+    // `open` field), fall back to the live change vs prev close — for a stock
+    // that gapped up and is still holding, the two are effectively identical.
+    const openGap = open > 0 && isFinite(open)
+      ? (open - prevClose) / prevClose * 100
+      : ((q.changePercent as number) ?? ((q.price - prevClose) / prevClose * 100));
+    if (!isFinite(openGap) || openGap < MIN_GAP_PCT || openGap >= 8) continue; // chase risk above 8%
     // Must still be holding gains above the open (gap not fading).
-    const holdsGain = q.price >= open && (q.changePercent ?? 0) > 0;
+    const hasOpen = open > 0 && isFinite(open);
+    const holdsGain = hasOpen
+      ? q.price >= open && (q.changePercent ?? 0) > 0
+      : (q.changePercent ?? 0) > 0;
     if (!holdsGain) continue;
     const price = q.price;
     if (price < MIN_PRICE) continue;
@@ -311,11 +319,12 @@ async function scanPostOpen(now: Date, window: MomentumWindow): Promise<{ picks:
     const score = Math.min(90, gap.points + queue.points + liq.points);
     if (score < MIN_SCORE) continue;
 
-    const signals = [gap.label, 'holding above open', liq.label].filter(Boolean);
-    // Entry basis: the 9:12 POST_OPEN pick is "buy the open" (price ≈ open
-    // right after the auction), but a 9:30+ RE_SCAN must quote the LIVE price
-    // — quoting yesterday's open there makes the alert look stale/wrong.
-    const base = window === 'RE_SCAN' ? price : open;
+    const signals = [gap.label, holdsGain ? 'holding above open' : 'above pre-close avg', liq.label].filter(Boolean);
+    // Entry basis: the POST_OPEN pick is "buy the open" (price ≈ open right
+    // after the auction), but a 9:30+ RE_SCAN must quote the LIVE price —
+    // quoting yesterday's open there makes the alert look stale/wrong. Without
+    // a session open, always quote the live price.
+    const base = window === 'RE_SCAN' || !hasOpen ? price : open;
     picks.push({
       ticker,
       name: getTickerName(ticker),

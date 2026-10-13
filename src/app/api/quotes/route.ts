@@ -114,15 +114,20 @@ export async function GET(req: Request) {
   const lite = new URL(req.url).searchParams.get('lite') === '1';
   const engine = getEngineState();
 
-  if (engine.quotesPayload) {
-    const merged = mergeLastGood(engine.quotesPayload);
+  // Under CUSTOM_SERVER the live quotes are produced by the child engine and
+  // streamed into global.__quotesPayload (this process's own cache is empty).
+  const childPayload = (globalThis as Record<string, string>).__quotesPayload;
+  const livePayload = childPayload || engine.quotesPayload;
+
+  if (livePayload) {
+    const merged = mergeLastGood(livePayload);
     lastGoodResponse = merged;
     const body = lite ? slimQuotesJson(merged) : merged;
     return new Response(body, {
       status: 200,
       headers: {
         'content-type': 'application/json',
-        'x-source': 'engine',
+        'x-source': childPayload ? 'engine-child' : 'engine',
         'Cache-Control': 'no-store, no-cache, must-revalidate',
       },
     });

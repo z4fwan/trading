@@ -61,5 +61,21 @@ export async function GET() {
     signal: AbortSignal.timeout(8000),
   });
 
+  // 6) Child engine's live quote payload (streamed from the worker via IPC)
+  const qp = (globalThis as Record<string, string>).__quotesPayload;
+  if (qp && typeof qp === 'string') {
+    try {
+      const d = JSON.parse(qp);
+      const stocks = d?.stocks ?? {};
+      const entries = Object.values(stocks) as { price?: number }[];
+      const priced = entries.filter(s => Number(s?.price ?? 0) > 0).length;
+      results.childQuotes = { present: true, symbols: Object.keys(stocks).length, priced, childPayloadBytes: qp.length };
+    } catch (e) {
+      results.childQuotes = { present: true, parseError: String(e).slice(0, 200) };
+    }
+  } else {
+    results.childQuotes = { present: false };
+  }
+
   return NextResponse.json({ ts: new Date().toISOString(), env: { RENDER: process.env.RENDER ?? null, node: process.version }, results });
 }

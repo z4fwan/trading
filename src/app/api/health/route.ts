@@ -32,6 +32,20 @@ async function pingPythonBackend() {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+function childQuoteStats(): { pricedStocks: number; indianPriced: string } | null {
+  const raw = (globalThis as Record<string, string>).__quotesPayload;
+  if (!raw || typeof raw !== 'string') return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const stocks = parsed?.stocks ?? {};
+    const entries = Object.values(stocks) as { price?: number }[];
+    const priced = entries.filter(s => Number(s?.price ?? 0) > 0).length;
+    return { pricedStocks: priced, indianPriced: `${priced}/${entries.length}` };
+  } catch {
+    return null;
+  }
+}
+
 export async function GET() {
   ensureBackgroundEngine();
   const now = Date.now();
@@ -62,7 +76,12 @@ export async function GET() {
   const newsAge = engine.lastNewsCycle ? now - engine.lastNewsCycle : -1;
   const aiAge = engine.lastAILearning ? now - engine.lastAILearning : -1;
   const engineUptime = engine.startedAt ? now - engine.startedAt : 0;
-  const quotes = getQuoteCacheStats();
+  // Prefer the child engine's live cache (this process's own cache is empty).
+  const childQuotes = childQuoteStats();
+  const localStats = getQuoteCacheStats();
+  const quotes = childQuotes
+    ? { pricedStocks: childQuotes.pricedStocks, indianPriced: childQuotes.indianPriced, lastFullSnapshotAt: localStats.lastFullSnapshotAt }
+    : { pricedStocks: localStats.pricedStocks, indianPriced: `${localStats.indianPriced}/${localStats.totalIndian}`, lastFullSnapshotAt: localStats.lastFullSnapshotAt };
   const [supabasePing, pythonPing] = await Promise.all([pingSupabase(), pingPythonBackend()]);
   const yahooErrors = engine.errors.filter(e => e.startsWith('quote-fetch')).length;
   const healthy = engine.running && quoteAge < 10000 && envHealthy()

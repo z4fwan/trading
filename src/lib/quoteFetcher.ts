@@ -407,6 +407,53 @@ async function fetchChartBatch(symbols: string[], market: MarketSummary, concurr
   return merged;
 }
 
+const SPARK_CHUNK = 180;
+
+/**
+ * Yahoo v7 `/finance/spark` — one request returns price/prevClose/high/low/
+ * volume/change for MANY symbols (same host as the chart API, so it works from
+ * Render). It has no `open`, so scanPostOpen falls back to the live change and
+ * the chart API is used to enrich opens for the core names.
+ */
+async function fetchSparkBatch(symbols: string[], market: MarketSummary): Promise<number> {
+  if (symbols.length === 0) return 0;
+  if (Date.now() < getState().yahooRateLimitUntil) return 0;
+  let merged = 0;
+  for (let i = 0; i < symbols.length; i += SPARK_CHUNK) {
+    const chunk = symbols.slice(i, i + SPARK_CHUNK);
+    try {
+      const url = `${'https://query1.finance.yahoo.com/v7/finance/spark'}?symbols=${encodeURIComponent(chunk.join(','))}&range=1d&interval=1d`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': CHART_UA },
+        signal: AbortSignal.timeout(9000),
+        cache: 'no-store',
+      });
+      if (res.status === 429) {
+        getState().yahooRateLimitUntil = Date.now() + 10000;
+        console.warn('[quoteFetcher] Yahoo spark 429 — backing off 10s');
+        return merged;
+      }
+      if (!res.ok) return merged;
+      const j: any = await res.json();
+      const rows = j?.spark?.result ?? [];
+      for (const row of rows) {
+        const sym = row?.symbol;
+        const result = row?.response?.[0];
+        if (!sym || !result) continue;
+        const entry = mapQuote(chartToRaw(sym, result), market);
+        if (entry && shouldCommit(sym, entry, market)) {
+          commitEntry(sym, entry);
+          merged++;
+        }
+      }
+    } catch {
+      return merged;
+    }
+    if (i + SPARK_CHUNK < symbols.length) await new Promise(r => setTimeout(r, 120));
+  }
+  return merged;
+}
+
 async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
   const indianCached = INDIAN_SYMBOLS.filter(s => getState().cache.stocks[s]?.price && getState().cache.stocks[s].price > 0).length;
   const needFull = indianCached < INDIAN_SYMBOLS.length * FULL_SNAPSHOT_MIN_COVERAGE
@@ -420,17 +467,19 @@ async function ensureFullSnapshot(market: MarketSummary): Promise<void> {
   ];
   for (const syms of batches) {
     if (Date.now() < getState().yahooRateLimitUntil) break;
-    await fetchChartBatch(syms, market, 6);
-    await new Promise(r => setTimeout(r, 200));
+    await fetchSparkBatch(syms, market);
   }
+  // Enrich `open` for the core names via the chart API (spark has no open).
+  await fetchChartBatch([...INDEX_TICKERS_ARRAY, ...INDIAN_SYMBOLS.slice(0, 200)], market, 5);
   getState().fullSnapshotAt = Date.now();
 }
 
 async function warmBootSnapshot(market: MarketSummary): Promise<void> {
   if (getState().warmBootDone) return;
   getState().warmBootDone = true;
-  // Priority order: indices → core Indian names (chart API; reliable on Render).
-  await fetchChartBatch([...INDEX_TICKERS_ARRAY, ...INDIAN_SYMBOLS.slice(0, 60)], market, 6);
+  // Spark fills prices fast; chart adds exact opens for indices + top names.
+  await fetchSparkBatch([...INDEX_TICKERS_ARRAY, ...INDIAN_SYMBOLS.slice(0, 60)], market);
+  await fetchChartBatch([...INDEX_TICKERS_ARRAY, ...INDIAN_SYMBOLS.slice(0, 30)], market, 5);
 }
 
 export async function fetchTradingViewIndia(market: MarketSummary) {
@@ -560,10 +609,10 @@ export async function fetchQuotesFromYahoo(): Promise<QuotesResult> {
 
     if (batch.length > 0) {
       try {
-        // Yahoo v8 chart API is the reliable server-side source on Render
-        // (v7 quote + yahoo-finance2 are rate-limited/401 from datacenter IPs).
+        // spark = one-request bulk refresh (works from Render; has no `open`).
+        // TradingView scan is kept as a secondary source (often 429 on Render).
         await Promise.all([
-          fetchChartBatch(batch, market),
+          fetchSparkBatch(batch, market),
           fetchTradingViewIndia(market)
         ]);
       } catch (e) {
