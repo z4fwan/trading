@@ -25,7 +25,7 @@ export interface PythonPrediction {
   features_used: number[];
 }
 
-const PREDICT_TIMEOUT_MS = 15_000;
+const PREDICT_TIMEOUT_MS = 30_000; // Free-tier cold starts can take 30-60s
 
 /**
  * Sanitize a numeric series before it reaches numpy. Yahoo/our scanners can
@@ -94,8 +94,13 @@ export async function getPythonMLPrediction(eventData: PythonEventData): Promise
     const data = await res.json();
     return data as PythonPrediction;
   } catch (e: any) {
-    // If backend is unreachable, back off instead of spamming every cycle
-    if (e?.cause?.code === 'ECONNREFUSED' || e?.message?.includes('ECONNREFUSED')) {
+    // If backend is unreachable (connection refused, DNS, timeout, transport),
+    // back off instead of spamming every cycle. HTTP status errors (4xx/5xx)
+    // are NOT treated as unreachable — the backend is up, just rejecting.
+    const msg = `${e?.message || ''} ${e?.cause?.code || ''}`;
+    const isNetworkError = /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ECONNRESET|fetch failed/i.test(msg)
+      || e?.name === 'AbortError' || e?.name === 'TimeoutError' || e?.name === 'TypeError';
+    if (isNetworkError) {
       if (!_backendDown) {
         console.warn('[ML Pipeline] Python Backend offline — backing off for 5 min');
       }
@@ -103,5 +108,29 @@ export async function getPythonMLPrediction(eventData: PythonEventData): Promise
       _backendDownUntil = Date.now() + BACKOFF_MS;
     }
     throw e;
+  }
+}
+
+let _lastWarmAt = 0;
+
+/**
+ * Light keep-alive ping so the free-tier Python service doesn't spin down
+ * between ML cycles. Only attempts every 4 minutes and never while a backoff
+ * is active; failures do not extend the backoff or spam errors.
+ */
+export async function warmPythonBackend(): Promise<void> {
+  const now = Date.now();
+  if (_backendDown && now < _backendDownUntil) return;
+  if (now - _lastWarmAt < 4 * 60 * 1000) return;
+  _lastWarmAt = now;
+  try {
+    await fetch(`${PYTHON_BACKEND_URL}/health`, { signal: AbortSignal.timeout(8000), cache: 'no-store' });
+    if (_backendDown) {
+      _backendDown = false;
+      _backendDownUntil = 0;
+      console.log('[ML Pipeline] Python Backend reachable again');
+    }
+  } catch {
+    // best-effort keep-alive; ignore failures silently
   }
 }

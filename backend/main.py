@@ -142,7 +142,7 @@ async def app_lifespan(app: FastAPI):
 
 app = FastAPI(title="NSE/BSE Quantum Alpha V7 API", version="7.0.0", lifespan=app_lifespan)
 
-registry = ModelRegistry("data/stage_b_registry.db")
+registry = ModelRegistry("data/model_registry.db")
 ml_arena = ModelArena(registry)
 
 # === PRODUCTION: Verify models loaded at startup ===
@@ -211,7 +211,13 @@ async def predict_probability(req: PredictionRequest):
             champion = registry.get_champion()
             if not champion:
                 raise RuntimeError("No models available for inference")
-            prob = ml_arena.predict_probability(champion['model_version'], np.array([features]))
+            champ_features = features
+            champ_obj = ml_arena.candidates.get(champion['model_version'])
+            if champ_obj is not None:
+                n_exp = getattr(champ_obj, 'n_features_in_', None)
+                if n_exp and n_exp < len(features):
+                    champ_features = features[:n_exp]
+            prob = ml_arena.predict_probability(champion['model_version'], np.array([champ_features]))
             all_predictions[champion['algorithm']] = prob * 100
 
         # === V7 Deep Sequence Prediction ===
@@ -257,7 +263,7 @@ async def predict_probability(req: PredictionRequest):
         return {
             "prediction_id": str(uuid.uuid4()),
             "request_id": request_id,
-            "model_version": champion['model_version'] if 'champion' in dir() else 'ensemble_v7',
+            "model_version": champion.get('model_version', 'ensemble_v7') if 'champion' in locals() and champion else 'ensemble_v7',
             "dataset_version": "v7.0",
             "feature_version": "v7.0-deep-sequence-regime",
             "created_at": datetime.now().isoformat(),
@@ -299,7 +305,7 @@ async def predict_probability(req: PredictionRequest):
         }
     except Exception as e:
         # Ensure errors are traceable and not silent
-        raise HTTPException(status_code=400, detail={
+        raise HTTPException(status_code=500, detail={
             "error": str(e),
             "request_id": request_id,
             "timestamp": datetime.now().isoformat(),

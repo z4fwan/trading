@@ -9,9 +9,7 @@ import { getFullUniverse } from './dynamicUniverse';
 import { getExchangeStatus } from './exchangeHours';
 import { fetchBullScoreCalls, type BullScoreCall } from './bullScoreFetcher';
 import { fetchInstitutionalSignals, type NSEInstitutionalSignal } from './nseBulkDealFetcher';
-import YahooFinance from 'yahoo-finance2';
-
-const yf = new YahooFinance({ suppressNotices: ['yahooSurvey'], validation: { logErrors: false } });
+import { fetchSparkPrices, fetchIntraday15m } from './yahooChartClient';
 
 const DEFAULT_CAPITAL = 50000;
 const RISK_PER_TRADE_PCT = 5;
@@ -61,17 +59,10 @@ function buildCallObject(
 
 async function fetchCurrentPrices(tickers: string[]): Promise<Record<string, number>> {
   const prices: Record<string, number> = {};
-  const chunks: string[][] = [];
-  for (let i = 0; i < tickers.length; i += 50) chunks.push(tickers.slice(i, i + 50));
-  for (const chunk of chunks) {
-    try {
-      const result = await yf.quote(chunk.map(t => tickerToYahoo(t)));
-      const arr = Array.isArray(result) ? result : [result];
-      for (const q of arr) {
-        const raw = q.symbol?.replace('.NS', '') || '';
-        if (q.regularMarketPrice && raw) prices[raw] = q.regularMarketPrice as number;
-      }
-    } catch { /* skip */ }
+  const spark = await fetchSparkPrices(tickers.map(t => tickerToYahoo(t)));
+  for (const [sym, price] of Object.entries(spark)) {
+    const raw = sym?.replace('.NS', '') || '';
+    if (price > 0 && raw) prices[raw] = price;
   }
   return prices;
 }
@@ -264,12 +255,13 @@ export async function runAutoIntradayScan(force: boolean = false): Promise<void>
   for (const s of deepScanTickers) {
     try {
       const symbol = tickerToYahoo(s.ticker);
-      const p1 = new Date(); p1.setDate(p1.getDate() - 7);
-      const result = await yf.chart(symbol, { period1: p1, period2: new Date(), interval: '15m', return: 'array' });
+      const result = await fetchIntraday15m(symbol);
       const candles: { close: number; high: number; low: number; volume: number }[] = [];
-      for (const q of result.quotes) {
-        if (q.close && q.high && q.low && q.volume != null) {
-          candles.push({ close: q.close as number, high: q.high as number, low: q.low as number, volume: q.volume as number });
+      if (result) {
+        for (const q of result) {
+          if (q.close && q.high && q.low && q.volume != null) {
+            candles.push({ close: q.close, high: q.high, low: q.low, volume: q.volume });
+          }
         }
       }
       if (candles.length < 30) continue;

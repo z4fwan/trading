@@ -1,4 +1,5 @@
 import YahooFinance from 'yahoo-finance2';
+import { fetchSparkPrices } from '@/lib/yahooChartClient';
 import { getTickerName, isIndianTicker, tickerToYahoo } from '@/lib/marketConfig';
 import { applyCrossCheckToRaw, runCrossCheck } from './crossCheck';
 import {
@@ -101,17 +102,18 @@ export async function fetchRawFundamentals(inputTicker: string): Promise<RawFund
 
   const abortOpts = { fetchOptions: { signal: AbortSignal.timeout(18000) } };
   try {
-    const [quote, summary] = await Promise.all([
-      yf().quote(yahooSym, {}, abortOpts),
-      yf().quoteSummary(yahooSym, {
-        modules: [
-          'summaryDetail',
-          'financialData',
-          'defaultKeyStatistics',
-          'price',
-        ],
-      }, abortOpts).catch(() => null),
-    ]);
+    // Live price via the spark feed (reliable from Render), plus the
+    // quoteSummary for deep fundamentals (crumb-gated; may fail on Render).
+    const sparkPrice = (await fetchSparkPrices([yahooSym]))[yahooSym];
+    const quote = sparkPrice ? { regularMarketPrice: sparkPrice } : null;
+    const summary = await yf().quoteSummary(yahooSym, {
+      modules: [
+        'summaryDetail',
+        'financialData',
+        'defaultKeyStatistics',
+        'price',
+      ],
+    }, abortOpts).catch(() => null);
 
     const sd = summary?.summaryDetail as Record<string, unknown> | undefined;
     const fd = summary?.financialData as Record<string, unknown> | undefined;

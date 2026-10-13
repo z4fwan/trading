@@ -159,11 +159,11 @@ export async function GET() {
       autonomous24x7: {
         browserRequired: false,
         newsEverySec: 60,
-        learningEverySec: 300,
+        learningEverySec: 900,
         fullAiEverySec: 600,
         lastResult: engine.aiLearningResult || null,
         bandwidthSaver: isRenderBandwidthSaver(),
-        quoteIntervalMs: isRenderBandwidthSaver() ? 6000 : process.env.RENDER === 'true' ? 3000 : 1000,
+        quoteIntervalMs: isRenderBandwidthSaver() ? 10000 : process.env.RENDER === 'true' ? 6000 : 500,
       },
       offline: {
         playbook: engine.marketOfflinePlaybook || null,

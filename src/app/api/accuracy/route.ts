@@ -34,10 +34,21 @@ export async function GET(req: Request) {
       pingSupabase(),
     ]);
 
-    // Self-awareness is computed from client-side localStorage store,
-    // but it still gives a useful in-memory snapshot when available.
-    const self = analyzeSelf();
     const engine = getEngineState();
+
+    // Under CUSTOM_SERVER the engine runs in the child worker; the real
+    // self-awareness is computed from the DB there and streamed via IPC.
+    let engineSelfAwareness = engine.selfAwareness;
+    const childPayload = (globalThis as Record<string, string>).__enginePayload;
+    if (childPayload && typeof childPayload === 'string') {
+      try {
+        const parsed = JSON.parse(childPayload);
+        if (parsed?.selfAwareness) engineSelfAwareness = parsed.selfAwareness;
+      } catch { /* ignore */ }
+    }
+    const self = engineSelfAwareness && Number(engineSelfAwareness.overallAccuracy) > 0
+      ? engineSelfAwareness
+      : analyzeSelf();
 
     return NextResponse.json({
       ok: true,
@@ -46,7 +57,7 @@ export async function GET(req: Request) {
       rolling,
       regimeAccuracy: regimeAcc,
       selfAwareness: self,
-      engineSelfAwareness: engine.selfAwareness,
+      engineSelfAwareness,
       supabaseReachable: supabasePing.reachable,
       supabase: supabasePing,
       timestamp: Date.now(),

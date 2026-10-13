@@ -1,21 +1,12 @@
 import type { PeerRow } from './types';
 import type { RawFundamentals } from './fundamentalFetcher';
-import YahooFinance from 'yahoo-finance2';
+import { fetchSparkPrices } from '@/lib/yahooChartClient';
 import { tickerToYahoo } from '@/lib/marketConfig';
 
 const BROWSER_HEADERS: Record<string, string> = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
   Accept: 'application/json,text/plain,*/*',
 };
-
-let _yf: InstanceType<typeof YahooFinance> | null = null;
-function yf() {
-  if (!_yf) {
-    _yf = new YahooFinance({ suppressNotices: ['yahooSurvey'], validation: { logErrors: false } });
-    
-  }
-  return _yf;
-}
 
 /** Sector peer map when Screener compare is unavailable */
 const SECTOR_PEERS: Record<string, string[]> = {
@@ -46,18 +37,13 @@ export async function fetchPeerRows(raw: RawFundamentals): Promise<PeerRow[]> {
   const pool = SECTOR_PEERS[raw.sector] || SECTOR_PEERS[raw.industry] || SECTOR_PEERS['Financial Services'];
   const tickers = pool.filter(t => t !== raw.ticker).slice(0, 5);
 
-  // Fetch live prices for fallback peers
+  // Fetch live prices for fallback peers (spark feed — works from Render)
   try {
     const yahooSyms = tickers.map(t => tickerToYahoo(t));
-    const quotes = await yf().quote(yahooSyms, {}, { fetchOptions: { signal: AbortSignal.timeout(10000) } });
-    const arr = Array.isArray(quotes) ? quotes : [quotes];
-    const priceMap = new Map<string, { price: number; pe: number | null }>();
-    for (const q of arr) {
-      const rawSym = (q.symbol || '').replace('.NS', '');
-      priceMap.set(rawSym, {
-        price: (q.regularMarketPrice as number) || 0,
-        pe: (q.trailingPE as number) || null,
-      });
+    const prices = await fetchSparkPrices(yahooSyms);
+    const priceMap = new Map<string, number>();
+    for (const [sym, price] of Object.entries(prices)) {
+      priceMap.set(sym.replace('.NS', ''), price);
     }
     return tickers.map(t => {
       const p = priceMap.get(t);
@@ -65,11 +51,11 @@ export async function fetchPeerRows(raw: RawFundamentals): Promise<PeerRow[]> {
         ticker: t,
         name: t,
         isSubject: false,
-        pe: p?.pe ?? null,
+        pe: null,
         pb: null,
         roe: null,
         revGrowth: null,
-        marketCapCr: p?.price ? p.price * 1 : null,
+        marketCapCr: p ? p * 1 : null,
         de: null,
         edge: 'Sector peer',
       };

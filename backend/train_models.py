@@ -107,7 +107,7 @@ def main():
     print("=" * 70)
 
     os.makedirs("data", exist_ok=True)
-    registry = ModelRegistry("data/stage_b_registry.db")
+    registry = ModelRegistry("data/model_registry.db")
     arena = ModelArena(registry)
     fe_engine = FeatureEngineering()
 

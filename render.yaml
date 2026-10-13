@@ -65,3 +65,7 @@ services:
         sync: false
       - key: CRON_SECRET
         sync: false
+      # Python ML backend (Quantum Alpha) — separate Render service. Wired here
+      # so the Node engine dials the real service instead of 127.0.0.1:8080.
+      - key: PYTHON_BACKEND_URL
+        value: "https://trading-ml-backend-an8y.onrender.com"

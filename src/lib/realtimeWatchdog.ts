@@ -8,6 +8,7 @@
  * live WebSocket (via IPC ALERT_PAYLOAD) in milliseconds.
  */
 import YahooFinance from 'yahoo-finance2';
+import { fetchIntraday15m, fetchDailyHistory } from './yahooChartClient';
 import { isIndianTicker, tickerToYahoo, normalizeTicker, getTickerName } from './marketConfig';
 import { getAllCachedQuotes, type QuoteEntry } from './quoteFetcher';
 import { getPythonMLPrediction } from './pythonBridge';
@@ -144,19 +145,21 @@ async function runPrediction(job: { ticker: string; trigger: RealtimeTriggerType
     const prices: number[] = [];
     const volumes: number[] = [];
     try {
-      const p1 = new Date(); p1.setDate(p1.getDate() - 7);
-      const result = await yf.chart(symbol, { period1: p1, period2: new Date(), interval: '15m', return: 'array' });
-      for (const q of result.quotes) {
-        if (q.close && q.close > 0) { prices.push(q.close as number); volumes.push((q.volume as number) || 0); }
+      const bars = await fetchIntraday15m(symbol);
+      if (bars) {
+        for (const q of bars) {
+          if (q.close && q.close > 0) { prices.push(q.close); volumes.push(q.volume || 0); }
+        }
       }
     } catch { /* fall back to daily */ }
     if (prices.length < 30) {
       try {
-        const p1 = new Date(); p1.setFullYear(p1.getFullYear() - 1);
-        const result = await yf.chart(symbol, { period1: p1, period2: new Date(), interval: '1d', return: 'array' });
-        prices.length = 0; volumes.length = 0;
-        for (const q of result.quotes) {
-          if (q.close && q.close > 0) { prices.push(q.close as number); volumes.push((q.volume as number) || 0); }
+        const bars = await fetchDailyHistory(symbol);
+        if (bars) {
+          prices.length = 0; volumes.length = 0;
+          for (const q of bars) {
+            if (q.close && q.close > 0) { prices.push(q.close); volumes.push(q.volume || 0); }
+          }
         }
       } catch { /* ignore */ }
     }

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { analyzePortfolioRisk, calculatePositionSize, riskGateCheck } from '@/lib/riskManagement';
-import { getCachedHistory } from '@/lib/backgroundEngine';
+import { getCachedHistory, prefetchHistoryBatch } from '@/lib/backgroundEngine';
 import { INDIAN_EQUITY_TICKERS } from '@/lib/marketConfig';
 
 export const dynamic = 'force-dynamic';
@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
   }
 
   const topTickers = INDIAN_EQUITY_TICKERS.slice(0, 20);
+  await prefetchHistoryBatch(topTickers);
   const positions: Array<{ ticker: string; weight: number; price: number; returns: number[] }> = [];
   const equalWeight = 1 / topTickers.length;
 

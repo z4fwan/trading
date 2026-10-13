@@ -14,6 +14,7 @@ import { markQuantCycle, markRiskCycle, markOptionsFlow, markBacktestCycle } fro
 import { computeModelParams, predictWithModel, type MLModel } from './mlEngine';
 import { runAdaptiveLearning } from './ai/knowledgeBase';
 import YahooFinance from 'yahoo-finance2';
+import { fetchDailyHistory as fetchDailyChartHistory } from './yahooChartClient';
 import { markEngineRunning, markEngineStopped, markQuote, markMLCycle, markHistoryCount, markNewsCycle, markAILearning, markMacroShock, markMemoryMB, markError, markActiveFetches, markSelfAwareness, markLLMConfigured, markLLMAnalysis, markStrategyExplore, getEngineState, markIntradayCalls } from './engineState';
 import { fetchClassifiedNews } from './newsFetcher';
 import { processNewsPipeline } from './llmNewsPipeline';
@@ -152,10 +153,9 @@ function processHealthBeat(): void {
       }
     } catch { /* ignore */ }
     try {
-      const { getSelfAwarenessProfile } = await import('./selfAwarenessEngine');
-      const p = getSelfAwarenessProfile();
-      markSelfAwareness(p.overallAccuracy, p.selfAwarenessScore, p.metaConfidence, p.strengths.length, p.weaknesses.length, p.trend);
-    } catch { /* ignore */ }
+      const { warmPythonBackend } = await import('./pythonBridge');
+      await warmPythonBackend();
+    } catch { /* best-effort */ }
     try {
       const { isLLMConfigured, getLLMCacheStats } = await import('./llmIntegration');
       markLLMConfigured(isLLMConfigured());
@@ -290,15 +290,8 @@ export async function prefetchHistoryBatch(tickers: string[]): Promise<void> {
     await Promise.all(batch.map(async (ticker) => {
       try {
         const symbol = tickerToYahoo(ticker);
-        const p1 = new Date(); p1.setFullYear(p1.getFullYear() - 2);
-        const result = await yf().chart(symbol, { period1: p1, period2: new Date(), interval: '1d', return: 'array' });
-        const candles: OHLC[] = [];
-        for (const q of result.quotes) {
-          if (q.open != null && q.high != null && q.low != null && q.close != null && q.volume != null && q.date != null) {
-            candles.push({ date: Math.floor(q.date.getTime() / 1000), open: q.open, high: q.high, low: q.low, close: q.close, volume: q.volume });
-          }
-        }
-        if (candles.length > 0) {
+        const candles = await fetchDailyChartHistory(symbol);
+        if (candles && candles.length > 0) {
           if (historyCache.size >= MAX_CACHE_ENTRIES) { const oldest = historyCache.keys().next().value; if (oldest) historyCache.delete(oldest); }
           historyCache.set(ticker, { candles, fetchedAt: Date.now() });
           markHistoryCount(historyCache.size);
@@ -321,19 +314,13 @@ async function rateLimitedHistory(ticker: string): Promise<OHLC[] | null> {
     lastHistoryCall = Date.now();
     try {
       const symbol = tickerToYahoo(ticker);
-      const p1 = new Date(); p1.setFullYear(p1.getFullYear() - 2);
-      const result = await yf().chart(symbol, { period1: p1, period2: new Date(), interval: '1d', return: 'array' });
-      candles = [];
-      for (const q of result.quotes) {
-        if (q.open != null && q.high != null && q.low != null && q.close != null && q.volume != null && q.date != null) {
-          candles.push({ date: Math.floor(q.date.getTime() / 1000), open: q.open, high: q.high, low: q.low, close: q.close, volume: q.volume });
-        }
-      }
-      if (candles.length > 0) {
+      candles = await fetchDailyChartHistory(symbol);
+      if (candles && candles.length > 0) {
         if (historyCache.size >= MAX_CACHE_ENTRIES) { const oldest = historyCache.keys().next().value; if (oldest) historyCache.delete(oldest); }
         historyCache.set(ticker, { candles, fetchedAt: Date.now() });
         markHistoryCount(historyCache.size);
       }
+      if (!candles) return null;
     } catch (e) {
       warn(`History fetch failed for ${ticker}: ${String(e).slice(0, 80)}`);
       return null;
@@ -422,74 +409,92 @@ async function runMLCycle(): Promise<void> {
       };
       
       let pyPrediction;
+      const tsPred = predictWithModel(model, history);
       try {
         pyPrediction = await getPythonMLPrediction(eventData);
       } catch (e) {
-        markError(`python-ml-bridge: ${e}`);
-        continue;
+        if (!tsPred) {
+          markError(`python-ml-bridge: ${e} (no TS fallback)`);
+          continue;
+        }
+        log(`[ML] Python offline — using TS fallback for ${ticker} (${e})`);
       }
-      
-      if (!pyPrediction) continue;
+
+      // Resolve an authoritative prediction: prefer the Python ensemble, else
+      // fall back to the locally-trained logistic-regression model so ML
+      // predictions (and therefore accuracy/self-awareness) keep flowing even
+      // while the Python service is down/deploying.
+      if (!pyPrediction && !tsPred) continue;
       preds++;
 
-      try {
-        const { fetchAlternativeData } = await import('./alternativeData');
-        const { evaluateTradeWithHumanBrain } = await import('./ensembleBrain');
-        
-        const altData = await fetchAlternativeData(ticker, pyPrediction.probability);
-        const brainDecision = await evaluateTradeWithHumanBrain(ticker, altData);
-        
-        // Strict floor: only EXECUTE with real LLM conviction fires an alert.
-        // A confidence of 50 is the LLM parse fallback (synthesis failure), and
-        // anything below 70 is the same noise that used to spam SELL on every
-        // stock — suppress it before Telegram.
-        const isGenuineConviction = brainDecision.confidence >= 70 && brainDecision.decision === 'EXECUTE';
-        if (isGenuineConviction) {
-           const { sendIntradayCandidateAlert } = await import('./telegramBot');
-           const lastPrice = history[history.length - 1].close;
-           await sendIntradayCandidateAlert({
-              ticker,
-              name: getTickerName(ticker),
-              direction: pyPrediction.probability > 50 ? 'BULLISH' : 'BEARISH',
-              confidence: brainDecision.confidence,
-              entryPrice: lastPrice,
-              currentPrice: lastPrice,
-              targetPrice: parseFloat((lastPrice * (pyPrediction.probability > 50 ? 1.05 : 0.95)).toFixed(2)),
-              stopLoss: parseFloat((lastPrice * (pyPrediction.probability > 50 ? 0.98 : 1.02)).toFixed(2)),
-              predictedReturnPct: 5,
-              riskReward: 2.5,
-              reasoning: [brainDecision.reasoning],
-              keyFactors: ['6-Pillar Absolute Confluence Confirmed']
-           });
-           log(`[EnsembleBrain] EXECUTE signal fired for ${ticker}.`);
-        } else {
-           log(`[EnsembleBrain] Passed on ${ticker}. Reason: ${brainDecision.reasoning}`);
+      const probability = pyPrediction ? pyPrediction.probability : Math.round(tsPred!.probability * 100);
+      const predictionId = pyPrediction ? pyPrediction.prediction_id : `ts-${ticker}-${Date.now()}`;
+      const predictionSource = pyPrediction ? 'AI_QUANT_V4' : 'AI_QUANT_TS-FALLBACK';
+      const direction = probability > 50 ? 'BULLISH' : 'BEARISH';
+      const confidence = pyPrediction ? Math.abs(probability - 50) * 2 : tsPred!.confidence;
+
+      if (pyPrediction) {
+        try {
+          const { fetchAlternativeData } = await import('./alternativeData');
+          const { evaluateTradeWithHumanBrain } = await import('./ensembleBrain');
+          
+          const altData = await fetchAlternativeData(ticker, pyPrediction.probability);
+          const brainDecision = await evaluateTradeWithHumanBrain(ticker, altData);
+          
+          // Strict floor: only EXECUTE with real LLM conviction fires an alert.
+          // A confidence of 50 is the LLM parse fallback (synthesis failure), and
+          // anything below 70 is the same noise that used to spam SELL on every
+          // stock — suppress it before Telegram.
+          const isGenuineConviction = brainDecision.confidence >= 70 && brainDecision.decision === 'EXECUTE';
+          if (isGenuineConviction) {
+             const { sendIntradayCandidateAlert } = await import('./telegramBot');
+             const lastPrice = history[history.length - 1].close;
+             await sendIntradayCandidateAlert({
+                ticker,
+                name: getTickerName(ticker),
+                direction: probability > 50 ? 'BULLISH' : 'BEARISH',
+                confidence: brainDecision.confidence,
+                entryPrice: lastPrice,
+                currentPrice: lastPrice,
+                targetPrice: parseFloat((lastPrice * (probability > 50 ? 1.05 : 0.95)).toFixed(2)),
+                stopLoss: parseFloat((lastPrice * (probability > 50 ? 0.98 : 1.02)).toFixed(2)),
+                predictedReturnPct: 5,
+                riskReward: 2.5,
+                reasoning: [brainDecision.reasoning],
+                keyFactors: ['6-Pillar Absolute Confluence Confirmed']
+             });
+             log(`[EnsembleBrain] EXECUTE signal fired for ${ticker}.`);
+          } else {
+             log(`[EnsembleBrain] Passed on ${ticker}. Reason: ${brainDecision.reasoning}`);
+          }
+        } catch (e) {
+          warn(`[EnsembleBrain] Error processing ${ticker}: ${e}`);
         }
-      } catch (e) {
-        warn(`[EnsembleBrain] Error processing ${ticker}: ${e}`);
       }
 
       if (supabase) {
         try {
           const lastPrice = history[history.length - 1].close;
-          const id = pyPrediction.prediction_id;
+          const id = predictionId;
           
-          const dynamicRisk = (pyPrediction as any).risk_metrics || {
-             stop_loss: lastPrice * (pyPrediction.probability > 50 ? 0.99 : 1.01),
-             target_price: lastPrice * (pyPrediction.probability > 50 ? 1.02 : 0.98),
+          const dynamicRisk = pyPrediction ? (pyPrediction as any).risk_metrics || {
+             stop_loss: lastPrice * (probability > 50 ? 0.99 : 1.01),
+             target_price: lastPrice * (probability > 50 ? 1.02 : 0.98),
+             position_size: 0.1,
+             expected_value: 0
+          } : {
+             stop_loss: lastPrice * (probability > 50 ? 0.99 : 1.01),
+             target_price: lastPrice * (probability > 50 ? 1.02 : 0.98),
              position_size: 0.1,
              expected_value: 0
           };
-          
-          const direction = pyPrediction.probability > 50 ? 'BULLISH' : 'BEARISH';
-          const confidence = Math.abs(pyPrediction.probability - 50) * 2;
 
           const row = {
-            id, ticker, name: getTickerName(ticker), source: 'AI_QUANT_V4',
+            id, ticker, name: getTickerName(ticker), source: predictionSource,
             created_at: Date.now(), prediction_type: 'DAILY',
             direction: direction,
-            bullish_prob: pyPrediction.probability,
-            bearish_prob: 100 - pyPrediction.probability,
+            bullish_prob: probability,
+            bearish_prob: 100 - probability,
             confidence: confidence,
             entry_price: lastPrice,
             target_price: dynamicRisk.target_price,

@@ -37,6 +37,7 @@ class ModelArena:
     def __init__(self, registry: ModelRegistry):
         self.registry = registry
         self.scaler = StandardScaler()
+        self.candidate_scalers = {}
         self.candidates = {}
         self.stacking_model = None
         self.meta_scaler = StandardScaler()
@@ -67,8 +68,12 @@ class ModelArena:
                 if model is not None:
                     self.candidates[fname] = model
                     loaded += 1
+                    # Keep per-candidate scalers so a shared self.scaler is never
+                    # silently overwritten by whichever pkl loaded last.
                     if scaler is not None:
-                        self.scaler = scaler
+                        self.candidate_scalers[fname] = scaler
+                        if self.scaler is None or len(self.candidate_scalers) == 1:
+                            self.scaler = scaler
             except Exception:
                 continue
         if loaded > 0:
@@ -271,10 +276,14 @@ class ModelArena:
 
         return results
 
+    def _features_scaled(self, model_name: str, features: np.ndarray) -> np.ndarray:
+        scaler = self.candidate_scalers.get(model_name, self.scaler)
+        return scaler.transform(features.reshape(1, -1) if features.ndim == 1 else features)
+
     def predict_probability(self, model_name: str, features: np.ndarray) -> float:
         """Get calibrated prediction from a specific candidate."""
         if model_name == 'StackingEnsemble' and self.stacking_model:
-            features_scaled = self.scaler.transform(features.reshape(1, -1) if features.ndim == 1 else features)
+            features_scaled = self._features_scaled(model_name, features)
             return float(self.stacking_model.predict_proba(features_scaled)[0][1])
 
         if model_name not in self.candidates:
@@ -282,7 +291,7 @@ class ModelArena:
             val = float(np.sum(features)) % 100 / 100.0
             return max(0.2, min(0.9, val))
 
-        features_scaled = self.scaler.transform(features.reshape(1, -1) if features.ndim == 1 else features)
+        features_scaled = self._features_scaled(model_name, features)
         return float(self.candidates[model_name].predict_proba(features_scaled)[0][1])
 
     def predict_ensemble(self, features: np.ndarray) -> Dict[str, float]:
@@ -298,7 +307,7 @@ class ModelArena:
 
         if self.stacking_model:
             try:
-                X_scaled = self.scaler.transform(X)
+                X_scaled = self._features_scaled('StackingEnsemble', X)
                 predictions['StackingEnsemble'] = float(self.stacking_model.predict_proba(X_scaled)[0][1])
             except Exception:
                 pass
