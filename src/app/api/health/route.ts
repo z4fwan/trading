@@ -125,7 +125,7 @@ export async function GET() {
       recentErrors: engine.errors.slice(-5),
       quotes: {
         pricedStocks: quotes.pricedStocks,
-        indianPriced: `${quotes.indianPriced}/${quotes.totalIndian}`,
+        indianPriced: quotes.indianPriced,
         lastFullSnapshot: quotes.lastFullSnapshotAt
           ? `${Math.round((now - quotes.lastFullSnapshotAt) / 60000)}min ago`
           : 'never',
