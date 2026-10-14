@@ -36,6 +36,29 @@ function rel(ts: number): string {
 
 const dedupe = new Set<string>();
 
+/** Under CUSTOM_SERVER the engine runs in a child process; its state arrives via IPC as __enginePayload. */
+function readEngineState() {
+  let engine = getEngineState();
+  if (process.env.CUSTOM_SERVER === 'true') {
+    const remote = (globalThis as Record<string, unknown>).__enginePayload;
+    if (remote && typeof remote === 'string' && remote.length > 2) {
+      try { engine = { ...engine, ...JSON.parse(remote) }; } catch { /* ignore */ }
+    }
+  }
+  return engine;
+}
+
+/** Give the freshly-booted worker a moment to stream its first state payload. */
+async function waitForEngine(maxMs = 20000): Promise<void> {
+  if (process.env.CUSTOM_SERVER !== 'true') return;
+  const start = Date.now();
+  while (Date.now() - start < maxMs) {
+    const remote = (globalThis as Record<string, unknown>).__enginePayload;
+    if (typeof remote === 'string' && remote.length > 2) return;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const token = searchParams.get('token');
@@ -49,7 +72,8 @@ export async function GET(req: Request) {
   }
 
   const ist = istParts();
-  const state = getEngineState();
+  if (event === 'wake') await waitForEngine();
+  const state = readEngineState();
   const uptimeMin = Math.floor(process.uptime() / 60);
   const today = new Date().toISOString().slice(0, 10);
   const dedupeKey = `${today}-${event}`;
