@@ -4,6 +4,8 @@ import { classifySentiment } from './newsStore';
 import { isEliteSource, isIndianEliteSource } from './eliteSources';
 import { ELITE_OFFICIAL_FEEDS, INDIAN_MACRO_RSS_FEEDS } from './eliteOfficialFeeds';
 import { fetchLiveNSEAnnouncements } from './nseCorporateFetcher';
+import { fetchLiveBSEAnnouncements } from './bseCorporateFetcher';
+import { fetchXMirrorNews } from './xMirrorFetcher';
 import { detectNewsRegion } from './indianMacro';
 import { scanHighImpactSECFilings } from './secEdgarFetcher';
 import { getImminentHighImpactEvents } from './economicCalendar';
@@ -267,22 +269,26 @@ async function fetchEliteOfficialNews(): Promise<{ headline: string; source: str
 }
 
 export async function fetchClassifiedNews(): Promise<ClassifiedNewsItem[]> {
-  const [yahooNews, eliteNews, nseNews, econEvents, ...rssResults] = await Promise.all([
+  const [yahooNews, eliteNews, nseNews, bseNews, econEvents, ...rssResults] = await Promise.all([
     fetchYahooFinanceNews(),
     fetchEliteOfficialNews(),
     fetchLiveNSEAnnouncements(),
+    fetchLiveBSEAnnouncements(),
     // Economic calendar: get imminent high-impact events
     getImminentHighImpactEvents().catch(() => []),
     ...RSS_FEEDS.map(f => fetchRssNews(f.url, f.source, f.skip)),
   ]);
-  const srcCount = [yahooNews, eliteNews, nseNews, false, econEvents.length > 0, ...rssResults].filter(Boolean).length;
-  if (srcCount === 0) console.warn('[NewsFetcher] ALL news sources returned empty — Yahoo, NSE, RSS, SEC, EconCalendar all down');
+  const srcCount = [yahooNews, eliteNews, nseNews, bseNews, false, econEvents.length > 0, ...rssResults].filter(Boolean).length;
+  if (srcCount === 0) console.warn('[NewsFetcher] ALL news sources returned empty — Yahoo, NSE, BSE, RSS, SEC, EconCalendar all down');
   const rawItems: { headline: string; source: string; tickers: string[]; url?: string }[] = [];
   if (yahooNews) {
     for (const item of yahooNews) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
   }
   if (nseNews) {
     for (const item of nseNews) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
+  }
+  if (bseNews) {
+    for (const item of bseNews) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
   }
   // Economic calendar events as news items
   for (const event of econEvents) {
@@ -298,6 +304,11 @@ export async function fetchClassifiedNews(): Promise<ClassifiedNewsItem[]> {
   for (const batch of rssResults) {
     if (!batch) continue;
     for (const item of batch) rawItems.push({ ...item, headline: sanitizeHeadline(item.headline) });
+  }
+  // Free unofficial X/Twitter mirrors (best-effort; [] when mirrors are down)
+  const xNews = await fetchXMirrorNews().catch(() => []);
+  for (const item of xNews) {
+    rawItems.push({ ...item, headline: sanitizeHeadline(item.headline), tickers: findTickersInText(item.headline) });
   }
   return classifyAndFormat(rawItems);
 }

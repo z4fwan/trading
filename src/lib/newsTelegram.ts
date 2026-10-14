@@ -69,3 +69,33 @@ export async function sendTelegramForHighImpact(items: ClassifiedNewsItem[]): Pr
 export function resetNotifiedHashes(): void {
   notifiedTelegramHashes.clear();
 }
+
+/** Generic HTML Telegram send (used by reports/digests). Returns true if sent. */
+export async function sendTelegramMessage(text: string): Promise<boolean> {
+  if (!process.env.TELEGRAM_BOT_TOKEN || !process.env.TELEGRAM_CHAT_ID) return false;
+  try {
+    const body = JSON.stringify({
+      chat_id: process.env.TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: 'HTML',
+    });
+    const { request } = await import('https');
+    await new Promise<void>((resolve, reject) => {
+      const u = new URL(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`);
+      const req = request({
+        hostname: u.hostname, path: u.pathname + u.search,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+        timeout: 10000, family: 4,
+      }, (res: any) => { res.on('data', () => {}); res.on('end', () => resolve()); });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      req.write(body);
+      req.end();
+    });
+    return true;
+  } catch (e) {
+    console.warn('[Telegram] message send failed:', e);
+    return false;
+  }
+}

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { fetchGlobalMacroCues, summarizeMacroCues } from '@/lib/globalMacroCues';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -46,11 +47,16 @@ export async function GET() {
       }).then(r => r.json()).then(d => d?.chart?.result?.[0]?.meta?.regularMarketPrice ?? null).catch(() => null),
     ]);
 
+    const globalMacro = await fetchGlobalMacroCues();
+    const macroSummary = summarizeMacroCues(globalMacro);
+
     const payload = JSON.stringify({
       usClose: spChange != null ? parseFloat(spChange.toFixed(2)) : null,
       asianMarkets: nikkei != null ? parseFloat(nikkei.toFixed(2)) : null,
       giftNifty: (giftNifty != null && nifty != null) ? parseFloat((((giftNifty - nifty) / nifty) * 100).toFixed(2)) : null,
       vix: vix ?? null,
+      globalMacro,
+      macroSummary,
       timestamp: Date.now(),
       usMarketStatus: sp500 ? 'CLOSED' : 'UNKNOWN',
       asianMarketStatus: nikkei ? 'OPEN' : 'UNKNOWN',

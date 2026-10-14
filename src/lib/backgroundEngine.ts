@@ -34,6 +34,8 @@ import { runAutoIntradayScan } from './autoIntradayScanner';
 import { runLongTermStockPicker } from './longTermStockPicker';
 import { getIntradayCalls, getIntradayPlan } from './intradayStore';
 import { evaluateRealtimeMarket, queueNewsTrigger } from './realtimeWatchdog';
+import { buildSeasonalReport, formatSeasonalReport } from './seasonalDemandEngine';
+import { sendTelegramMessage } from './newsTelegram';
 
 const ENGINE_VERSION = '2.0.0-render';
 
@@ -70,6 +72,7 @@ let optionsPulseTimer: ReturnType<typeof setInterval> | null = null;
 let autonomousTimer: ReturnType<typeof setInterval> | null = null;
 let reviewQueueTimer: ReturnType<typeof setInterval> | null = null;
 let intradayTimer: ReturnType<typeof setInterval> | null = null;
+let seasonalTimer: ReturnType<typeof setInterval> | null = null;
 const activeFetches = new Set<Promise<unknown>>();
 
 let started = false;
@@ -538,6 +541,30 @@ export function isBackgroundEngineStarted(): boolean {
   return started;
 }
 
+const SEASONAL_DIGEST_GUARD = '__seasonalDigestSentDate';
+
+async function runSeasonalDigest(): Promise<void> {
+  try {
+    const istDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const g = globalThis as unknown as Record<string, string | undefined>;
+    if (g[SEASONAL_DIGEST_GUARD] === istDate) return;
+    const report = await buildSeasonalReport(true);
+    const text = formatSeasonalReport(report)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    g[SEASONAL_DIGEST_GUARD] = istDate;
+    const sent = await sendTelegramMessage(
+      `<b>📅 Seasonal/Thematic Watchlist — ${report.monthName}</b>\n${text}`,
+    );
+    log(
+      `[Seasonal] digest ${sent ? 'sent' : 'generated (Telegram off)'} for ${istDate}; top theme: ${report.themes[0]?.name ?? 'n/a'}`,
+    );
+  } catch (e) {
+    warn(`[Seasonal] digest error: ${e}`);
+  }
+}
+
 export async function startBackgroundEngine(): Promise<void> {
   if (started) return;
   started = true;
@@ -877,6 +904,22 @@ let alphaDiscoveryTimer: ReturnType<typeof setInterval> | null = null;
     }
   }, 60000); // 1 minute after boot
 
+  // Seasonal/thematic demand digest — weekly, Monday 16:30–16:40 IST. HEURISTIC watchlist.
+  seasonalTimer = setInterval(() => {
+    if (shuttingDown) return;
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const mins = ist.getHours() * 60 + ist.getMinutes();
+    if (ist.getDay() === 1 && mins >= 16 * 60 + 30 && mins <= 16 * 60 + 40) {
+      void runSeasonalDigest();
+    }
+  }, 60000);
+  // Startup catch-up: if we boot on Monday at/after 16:30 IST, send once (idempotent).
+  setTimeout(() => {
+    const ist = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+    const mins = ist.getHours() * 60 + ist.getMinutes();
+    if (ist.getDay() === 1 && mins >= 16 * 60 + 30) void runSeasonalDigest();
+  }, 30000);
+
   log(`Started polling: ML(${ML_BATCH_SIZE} tickers), Quotes(${QUOTE_INTERVAL_MS}ms), News, Intraday...`);
   log(`Engine v${ENGINE_VERSION} started — ${QUOTE_INTERVAL_MS}ms quotes, ML (${ML_BATCH_SIZE}/cycle), 60s news, Pre-Market Alpha (8:00/9:07 IST), 5min autonomous, 10min AI, 12min Stock Pulse, 2hr Weekend Offline, 6hr IPO Scan`);
   log(`Render platform: ${process.env.RENDER ? 'yes' : 'no'}`);
@@ -903,6 +946,7 @@ function gracefulShutdown(signal?: string): void {
   if (backtestTimer) { clearInterval(backtestTimer); backtestTimer = null; }
   if (whaleScannerTimer) { clearInterval(whaleScannerTimer); whaleScannerTimer = null; }
   if (intradayTimer) { clearInterval(intradayTimer); intradayTimer = null; }
+  if (seasonalTimer) { clearInterval(seasonalTimer); seasonalTimer = null; }
   markEngineStopped(signal);
   const finalizeShutdown = async () => {
     try {
