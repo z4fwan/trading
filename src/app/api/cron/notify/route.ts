@@ -48,15 +48,43 @@ function readEngineState() {
   return engine;
 }
 
-/** Give the freshly-booted worker a moment to stream its first state payload. */
-async function waitForEngine(maxMs = 20000): Promise<void> {
-  if (process.env.CUSTOM_SERVER !== 'true') return;
+/** Give the freshly-booted worker time to stream a payload that says it is running. */
+async function waitForEngine(maxMs = 60000): Promise<boolean> {
+  if (process.env.CUSTOM_SERVER !== 'true') return true;
   const start = Date.now();
   while (Date.now() - start < maxMs) {
     const remote = (globalThis as Record<string, unknown>).__enginePayload;
-    if (typeof remote === 'string' && remote.length > 2) return;
-    await new Promise((r) => setTimeout(r, 1500));
+    if (remote && typeof remote === 'string' && remote.length > 2) {
+      try { if ((JSON.parse(remote) as { running?: boolean }).running) return true; } catch { /* ignore */ }
+    }
+    await new Promise((r) => setTimeout(r, 2000));
   }
+  return false;
+}
+
+/** If the worker is still booting at wake time, send a follow-up once it goes live (usually <2 min). */
+function scheduleReadyConfirmation(): void {
+  const g = globalThis as Record<string, unknown>;
+  if (g.__notifyReadyPoll) return;
+  let ticks = 0;
+  const timer: ReturnType<typeof setInterval> = setInterval(() => {
+    ticks++;
+    const st = readEngineState();
+    if (st.running) {
+      clearInterval(timer);
+      g.__notifyReadyPoll = null;
+      const now = istParts();
+      void sendTelegramMessage([
+        `✅ <b>ENGINE READY</b> — ${now.date}, ${now.time} IST`,
+        `First cycle complete: <b>${st.predictionsStored ?? 0}</b> predictions`,
+        `Cycles: ML ${rel(st.lastMLCycle)} · quotes ${rel(st.lastQuote)} · news ${rel(st.lastNewsCycle)}`,
+      ].join('\n'));
+    } else if (ticks >= 40) {
+      clearInterval(timer);
+      g.__notifyReadyPoll = null;
+    }
+  }, 3000);
+  g.__notifyReadyPoll = timer;
 }
 
 export async function GET(req: Request) {
@@ -89,18 +117,28 @@ export async function GET(req: Request) {
 
   let text: string;
   if (event === 'wake') {
-    text = [
-      `🌅 <b>ENGINE AWAKE</b> — ${ist.date}, ${ist.time} IST`,
-      `Status: <b>${state.running ? 'RUNNING ✅' : 'starting…'}</b> (up ${uptimeMin}m)`,
-      `Data: ${state.predictionsStored} predictions | accuracy ${accLine}`,
-      `Cycles: ML ${rel(state.lastMLCycle)} · quotes ${rel(state.lastQuote)} · news ${rel(state.lastNewsCycle)}`,
-      `Today: market open 09:15 · EOD resolve 15:45 · sleep ~19:00 IST`,
-    ].join('\n');
+    if (state.running) {
+      text = [
+        `🌅 <b>ENGINE AWAKE</b> — ${ist.date}, ${ist.time} IST`,
+        `Status: <b>RUNNING ✅</b> (up ${uptimeMin}m) — ${state.predictionsStored ?? 0} predictions this cycle`,
+        `Cycles: ML ${rel(state.lastMLCycle)} · quotes ${rel(state.lastQuote)} · news ${rel(state.lastNewsCycle)}`,
+        `Tracked momentum accuracy: ${accLine}`,
+        `Today: open 09:15 · EOD resolve 15:45 · sleep ~19:00 IST`,
+      ].join('\n');
+    } else {
+      text = [
+        `🌅 <b>ENGINE AWAKE</b> — ${ist.date}, ${ist.time} IST`,
+        `Status: <b>BOOTING 🔄</b> — cold start warming up (normal at wake).`,
+        `A ✅ READY confirmation will follow once the first cycle completes.`,
+        `Today: open 09:15 · EOD resolve 15:45 · sleep ~19:00 IST`,
+      ].join('\n');
+      scheduleReadyConfirmation();
+    }
   } else {
     text = [
       `😴 <b>ENGINE SLEEP</b> — ${ist.date}, ${ist.time} IST`,
       `Free-tier window ended — sleeping until next wake ~06:00 IST.`,
-      `Today: ${state.predictionsStored} predictions | accuracy ${accLine}`,
+      `Today: ${state.predictionsStored ?? 0} predictions | accuracy ${accLine}`,
       `Any missed events will be recovered automatically on the next wake.`,
     ].join('\n');
   }
