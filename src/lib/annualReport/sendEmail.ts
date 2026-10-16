@@ -1,5 +1,14 @@
+import dns from 'node:dns';
 import type { AnnualReportData } from './types';
 import { renderAnnualReportHtml } from './renderReport';
+
+// Render's network has no IPv6 route. Node would otherwise resolve smtp.gmail.com
+// to an AAAA record and fail with ENETUNREACH, silently breaking all email. Force
+// IPv4-first resolution process-wide.
+try {
+  (dns as unknown as { setDefaultResultOrder?: (order: string) => void })
+    .setDefaultResultOrder?.('ipv4first');
+} catch { /* older Node — family:4 on the socket below still applies */ }
 
 export interface SendReportResult {
   ok: boolean;
@@ -53,7 +62,9 @@ export async function sendEmailSmtp(to: string, subject: string, html: string): 
       const transport = nodemailer.createTransport({
         host, port, secure: port === 465,
         auth: { user, pass },
-      });
+        family: 4,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
       await transport.sendMail({
         from: process.env.SMTP_FROM || `"Quantum Alpha Terminal" <${user}>`,
         to, subject, html,
@@ -88,7 +99,9 @@ async function sendViaSmtp(to: string, subject: string, html: string): Promise<S
       port,
       secure: port === 465,
       auth: { user, pass },
-    });
+      family: 4,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
 
     await transport.sendMail({
       from: process.env.SMTP_FROM || `"Quantum Alpha Terminal" <${user}>`,
